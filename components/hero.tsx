@@ -188,8 +188,7 @@ export function Hero() {
             </div>
 
             <div className="text-xs text-white bg-[#0D0D0D] p-3 rounded-lg">
-              🎁 Você recebe R$ 50 em CRÉDITO no lançamento do app Alby Protect em 15/09. O crédito é para uso dentro do
-              app (não é transferência em dinheiro).
+              🎁 Você recebe R$ 50 em CRÉDITO no lançamento do app Escudo Pro em 15/09. O crédito é para uso dentro do app (não é transferência em dinheiro).
             </div>
 
             <Button

@@ -8,7 +8,7 @@ export function Header() {
           <div className="w-10 h-10 bg-[#FFA500] rounded-lg flex items-center justify-center">
             <span className="text-black font-bold text-lg">A</span>
           </div>
-          <span className="text-xl font-bold text-white">Alby Protect</span>
+          <span className="text-xl font-bold text-white">Escudo Pro </span>
         </div>
 
         <Link href="#privacy-policy" className="text-[#B3B3B3] hover:text-[#FFA500] transition-colors text-sm">
