@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Shield, CheckCircle, AlertTriangle, XCircle } from "lucide-react"
+import { analyzeMessage } from "@/lib/actions"
 
 interface AnalysisResult {
   verdict: "seguro" | "cautela" | "golpe"
@@ -52,46 +53,66 @@ export function Hero() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = e.currentTarget
 
-    const email =
-      (form.querySelector('input[type="email"], input[name="email"]') as HTMLInputElement)?.value?.trim() || ""
-    const phoneRaw =
-      (form.querySelector('input[type="tel"], input[name="phone"], input[name="telefone"]') as HTMLInputElement)
-        ?.value || ""
-    const phone = (phoneRaw || "").replace(/\D+/g, "")
+    if (!isFormValid()) {
+      setError("Por favor, preencha todos os campos corretamente.")
+      return
+    }
+
+    setIsLoading(true)
+    setError("")
+    setResult(null)
 
     try {
-      const action = form.getAttribute("action") || "/api/lead"
-      const method = (form.getAttribute("method") || "POST").toUpperCase()
-      const res = await fetch(action, { method, body: new FormData(form), redirect: "follow" })
+      const analysisFormData = new FormData()
+      analysisFormData.append("email", email)
+      analysisFormData.append("phone", phone.replace(/\D/g, ""))
+      analysisFormData.append("message", message)
+      analysisFormData.append("pageUrl", pageUrl)
 
-      // considera sucesso se 2xx, 3xx ou redirect
-      const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
+      const analysisResult = await analyzeMessage(analysisFormData)
+      setResult(analysisResult)
 
-      if (ok) {
-        const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
-        const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
-        const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
-        ;(window as any).dataLayer = (window as any).dataLayer || []
-        ;(window as any).dataLayer.push({
-          event: "lead_submit_success",
-          event_id: eventId,
-          user_email: email,
-          user_phone: phone,
-          _fbp: fbp || "",
-          _fbc: fbc || "",
-          event_source_url: window.location.href,
-        })
+      const phoneRaw = phone.replace(/\D/g, "")
 
-        try {
-          form.reset()
-        } catch {}
-      } else {
-        console.error("Falha no envio do formulário:", res.status, await res.text().catch(() => ""))
+      try {
+        const formData = new FormData()
+        formData.append("email", email)
+        formData.append("phone", phoneRaw)
+        formData.append("message", message)
+
+        const form = e.currentTarget
+        const action = form ? form.getAttribute("action") || "/api/lead" : "/api/lead"
+        const method = form ? (form.getAttribute("method") || "POST").toUpperCase() : "POST"
+
+        const res = await fetch(action, { method, body: formData, redirect: "follow" })
+
+        // considera sucesso se 2xx, 3xx ou redirect
+        const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
+
+        if (ok) {
+          const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
+          const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
+          const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
+          ;(window as any).dataLayer = (window as any).dataLayer || []
+          ;(window as any).dataLayer.push({
+            event: "lead_submit_success",
+            event_id: eventId,
+            user_email: email,
+            user_phone: phoneRaw,
+            _fbp: fbp || "",
+            _fbc: fbc || "",
+            event_source_url: window.location.href,
+          })
+        }
+      } catch (err) {
+        console.error("Erro de rede no envio do formulário:", err)
       }
     } catch (err) {
-      console.error("Erro de rede no envio do formulário:", err)
+      console.error("[v0] Error analyzing message:", err)
+      setError("Erro ao analisar a mensagem. Tente novamente.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -160,6 +181,8 @@ export function Hero() {
                 type="email"
                 placeholder="voce@exemplo.com"
                 name="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
                 required
               />
@@ -168,6 +191,8 @@ export function Hero() {
                 type="tel"
                 placeholder="(11) 99999-9999"
                 name="phone"
+                value={phone}
+                onChange={handlePhoneChange}
                 className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
                 maxLength={15}
                 required
@@ -177,6 +202,8 @@ export function Hero() {
                 <Textarea
                   placeholder="Cole aqui a mensagem ou link suspeito..."
                   name="message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
                   className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500] min-h-[120px] resize-none"
                   maxLength={1500}
                   required
@@ -188,6 +215,8 @@ export function Hero() {
             <div className="flex items-start space-x-2">
               <Checkbox
                 id="terms"
+                checked={acceptedTerms}
+                onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
                 className="border-[#404040] data-[state=checked]:bg-[#FFA500] data-[state=checked]:border-[#FFA500]"
               />
               <label htmlFor="terms" className="text-sm text-white leading-relaxed">
@@ -202,9 +231,10 @@ export function Hero() {
 
             <Button
               type="submit"
-              className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg"
+              disabled={isLoading || !isFormValid()}
+              className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg disabled:opacity-50"
             >
-              Escanear com IA agora
+              {isLoading ? "Analisando..." : "Escanear com IA agora"}
             </Button>
 
             {error && (
@@ -213,7 +243,7 @@ export function Hero() {
           </form>
         </Card>
 
-        {/* Results Card */}
+        {/* ... existing results card code ... */}
         {result && (
           <Card className="bg-[#1A1A1A] border-[#404040] p-6 md:p-8 max-w-2xl mx-auto mt-8">
             <div className="space-y-6">
