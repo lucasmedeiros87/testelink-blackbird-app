@@ -9,8 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Shield, CheckCircle, AlertTriangle, XCircle } from "lucide-react"
-import { analyzeMessage } from "@/lib/actions"
+import { Shield, CheckCircle, AlertTriangle, XCircle } from "lucide-react"
 
 interface AnalysisResult {
   verdict: "seguro" | "cautela" | "golpe"
@@ -51,34 +50,48 @@ export function Hero() {
     return emailRegex.test(email) && phone.replace(/\D/g, "").length === 11 && message.length >= 10 && acceptedTerms
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!isFormValid()) return
+    const form = e.currentTarget
 
-    setIsLoading(true)
-    setError("")
+    const email =
+      (form.querySelector('input[type="email"], input[name="email"]') as HTMLInputElement)?.value?.trim() || ""
+    const phoneRaw =
+      (form.querySelector('input[type="tel"], input[name="phone"], input[name="telefone"]') as HTMLInputElement)
+        ?.value || ""
+    const phone = (phoneRaw || "").replace(/\D+/g, "")
 
     try {
-      console.log("[v0] Lead salvo:", { email, phone: phone.replace(/\D/g, ""), pageUrl })
+      const action = form.getAttribute("action") || "/api/lead"
+      const method = (form.getAttribute("method") || "POST").toUpperCase()
+      const res = await fetch(action, { method, body: new FormData(form), redirect: "follow" })
 
-      const formData = new FormData()
-      formData.append("email", email)
-      formData.append("phone", phone.replace(/\D/g, ""))
-      formData.append("message", message)
-      formData.append("pageUrl", pageUrl)
+      // considera sucesso se 2xx, 3xx ou redirect
+      const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
 
-      const analysisResult = await analyzeMessage(formData)
-      setResult(analysisResult)
+      if (ok) {
+        const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
+        const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
+        const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
+        ;(window as any).dataLayer = (window as any).dataLayer || []
+        ;(window as any).dataLayer.push({
+          event: "lead_submit_success",
+          event_id: eventId,
+          user_email: email,
+          user_phone: phone,
+          _fbp: fbp || "",
+          _fbc: fbc || "",
+          event_source_url: window.location.href,
+        })
 
-      // Analytics events
-      console.log("[v0] form_submit")
-      console.log("[v0] analysis_success")
-      console.log(`[v0] verdict_${analysisResult.verdict}`)
+        try {
+          form.reset()
+        } catch {}
+      } else {
+        console.error("Falha no envio do formulário:", res.status, await res.text().catch(() => ""))
+      }
     } catch (err) {
-      setError("Não foi possível analisar agora. Tente novamente em instantes.")
-      console.log("[v0] analysis_error")
-    } finally {
-      setIsLoading(false)
+      console.error("Erro de rede no envio do formulário:", err)
     }
   }
 
@@ -141,13 +154,12 @@ export function Hero() {
 
         {/* Form Card */}
         <Card className="bg-[#1A1A1A] border-[#404040] p-6 md:p-8 max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6" action="/api/lead" method="POST">
             <div className="space-y-4">
               <Input
                 type="email"
                 placeholder="voce@exemplo.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                name="email"
                 className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
                 required
               />
@@ -155,8 +167,7 @@ export function Hero() {
               <Input
                 type="tel"
                 placeholder="(11) 99999-9999"
-                value={phone}
-                onChange={handlePhoneChange}
+                name="phone"
                 className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
                 maxLength={15}
                 required
@@ -165,8 +176,7 @@ export function Hero() {
               <div className="relative">
                 <Textarea
                   placeholder="Cole aqui a mensagem ou link suspeito..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  name="message"
                   className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500] min-h-[120px] resize-none"
                   maxLength={1500}
                   required
@@ -178,8 +188,6 @@ export function Hero() {
             <div className="flex items-start space-x-2">
               <Checkbox
                 id="terms"
-                checked={acceptedTerms}
-                onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
                 className="border-[#404040] data-[state=checked]:bg-[#FFA500] data-[state=checked]:border-[#FFA500]"
               />
               <label htmlFor="terms" className="text-sm text-white leading-relaxed">
@@ -188,22 +196,15 @@ export function Hero() {
             </div>
 
             <div className="text-xs text-white bg-[#0D0D0D] p-3 rounded-lg">
-              🎁 Você recebe R$ 50 em CRÉDITO no lançamento do app Escudo Pro em 15/09. O crédito é para uso dentro do app (não é transferência em dinheiro).
+              🎁 Você recebe R$ 50 em CRÉDITO no lançamento do app Escudo Pro em 15/09. O crédito é para uso dentro do
+              app (não é transferência em dinheiro).
             </div>
 
             <Button
               type="submit"
-              disabled={!isFormValid() || isLoading}
-              className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Analisando com IA…
-                </>
-              ) : (
-                "Escanear com IA agora"
-              )}
+              Escanear com IA agora
             </Button>
 
             {error && (

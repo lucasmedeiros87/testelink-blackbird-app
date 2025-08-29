@@ -9,7 +9,7 @@ export function Footer() {
             <div className="w-8 h-8 bg-[#FFA500] rounded-lg flex items-center justify-center">
               <span className="text-black font-bold">A</span>
             </div>
-            <span className="text-lg font-bold text-white">Alby Protect</span>
+            <span className="text-lg font-bold text-white">Escudo Pro</span>
           </div>
 
           <div className="text-center">
@@ -30,7 +30,7 @@ export function Footer() {
             </Link>
           </div>
 
-          <p className="text-sm text-[#666]">© 2025 Alby Protect. Todos os direitos reservados.</p>
+          <p className="text-sm text-[#666]">Escudo Pro</p>
         </div>
       </div>
     </footer>
