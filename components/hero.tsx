@@ -48,7 +48,12 @@ export function Hero() {
 
   const isFormValid = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    return emailRegex.test(email) && phone.replace(/\D/g, "").length === 11 && message.length >= 10 && acceptedTerms
+    return (
+      emailRegex.test(email) &&
+      phone.replace(/\D/g, "").length === 11 &&
+      message.length >= 10 &&
+      acceptedTerms
+    )
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -63,6 +68,7 @@ export function Hero() {
     setError("")
     setResult(null)
 
+    // 1) Tenta a análise, mas NÃO bloqueia o envio/pixel se falhar
     try {
       const analysisFormData = new FormData()
       analysisFormData.append("email", email)
@@ -70,47 +76,54 @@ export function Hero() {
       analysisFormData.append("message", message)
       analysisFormData.append("pageUrl", pageUrl)
 
-      const analysisResult = await analyzeMessage(analysisFormData)
-      setResult(analysisResult)
-
-      const phoneRaw = phone.replace(/\D/g, "")
-
-      try {
-        const formData = new FormData()
-        formData.append("email", email)
-        formData.append("phone", phoneRaw)
-        formData.append("message", message)
-
-        const form = e.currentTarget
-        const action = form ? form.getAttribute("action") || "/api/lead" : "/api/lead"
-        const method = form ? (form.getAttribute("method") || "POST").toUpperCase() : "POST"
-
-        const res = await fetch(action, { method, body: formData, redirect: "follow" })
-
-        // considera sucesso se 2xx, 3xx ou redirect
-        const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
-
-        if (ok) {
-          const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
-          const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
-          const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
-          ;(window as any).dataLayer = (window as any).dataLayer || []
-          ;(window as any).dataLayer.push({
-            event: "lead_submit_success",
-            event_id: eventId,
-            user_email: email,
-            user_phone: phoneRaw,
-            _fbp: fbp || "",
-            _fbc: fbc || "",
-            event_source_url: window.location.href,
-          })
-        }
-      } catch (err) {
-        console.error("Erro de rede no envio do formulário:", err)
-      }
+      const r = await analyzeMessage(analysisFormData)
+      setResult(r)
     } catch (err) {
       console.error("[v0] Error analyzing message:", err)
       setError("Erro ao analisar a mensagem. Tente novamente.")
+      // seguimos o fluxo mesmo assim
+    }
+
+    // 2) Envia para /api/lead e dispara o evento no sucesso real (2xx/3xx/redirect)
+    try {
+      const phoneRaw = phone.replace(/\D/g, "")
+
+      const form = e.currentTarget as HTMLFormElement
+      const action = form ? form.getAttribute("action") || "/api/lead" : "/api/lead"
+      const method = form ? (form.getAttribute("method") || "POST").toUpperCase() : "POST"
+
+      const formData = new FormData()
+      formData.append("email", email)
+      formData.append("phone", phoneRaw)
+      formData.append("message", message)
+
+      const res = await fetch(action, { method, body: formData, redirect: "follow" })
+      const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
+
+      if (ok) {
+        const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
+        const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
+        const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
+
+        ;(window as any).dataLayer = (window as any).dataLayer || []
+        ;(window as any).dataLayer.push({
+          event: "lead_submit_success",
+          event_id: eventId,
+          user_email: email,
+          user_phone: phoneRaw,
+          _fbp: fbp || "",
+          _fbc: fbc || "",
+          event_source_url: window.location.href,
+        })
+
+        try {
+          form.reset()
+        } catch {}
+      } else {
+        console.error("Falha no envio do formulário:", res.status, await res.text().catch(() => ""))
+      }
+    } catch (err) {
+      console.error("Erro de rede no envio do formulário:", err)
     } finally {
       setIsLoading(false)
     }
@@ -243,7 +256,7 @@ export function Hero() {
           </form>
         </Card>
 
-        {/* ... existing results card code ... */}
+        {/* Resultados */}
         {result && (
           <Card className="bg-[#1A1A1A] border-[#404040] p-6 md:p-8 max-w-2xl mx-auto mt-8">
             <div className="space-y-6">
