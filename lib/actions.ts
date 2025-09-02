@@ -7,6 +7,10 @@ interface AnalysisResult {
   reason: string
 }
 
+/* =========================
+   Utils gerais (URLs, HTML, CNPJ)
+   ========================= */
+
 /** Extrai até N URLs http(s) do texto da mensagem */
 function extractUrlsFromText(text: string, max = 2): string[] {
   const urls = new Set<string>()
@@ -22,7 +26,7 @@ function extractUrlsFromText(text: string, max = 2): string[] {
 }
 
 /** Remove <script>/<style>, normaliza espaços e limita tamanho */
-function summarizeHtml(raw: string, maxLen = 8000) {
+function summarizeHtml(raw: string, maxLen = 9000) {
   const noScripts = raw
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
@@ -33,89 +37,125 @@ function summarizeHtml(raw: string, maxLen = 8000) {
   return textish.slice(0, maxLen)
 }
 
-/** Heurísticas leves para reputação (por URL e HTML) */
+/** Valida CNPJ (14 dígitos) */
+function validateCNPJ(cnpjRaw: string): boolean {
+  const cnpj = (cnpjRaw || "").replace(/\D/g, "")
+  if (cnpj.length !== 14) return false
+  if (/^(\d)\1{13}$/.test(cnpj)) return false
+  const calc = (base: string, peso: number[]) =>
+    (base.split("").reduce((sum, n, i) => sum + parseInt(n,10)*peso[i], 0) % 11)
+  const p1 = [5,4,3,2,9,8,7,6,5,4,3,2]
+  const p2 = [6,5,4,3,2,9,8,7,6,5,4,3,2]
+  const d1 = calc(cnpj.slice(0,12), p1); const dv1 = (d1 < 2) ? 0 : 11 - d1
+  const d2 = calc(cnpj.slice(0,12) + dv1, p2); const dv2 = (d2 < 2) ? 0 : 11 - d2
+  return cnpj.slice(12) === `${dv1}${dv2}`
+}
+
+/** Extrai sinais de reputação leve a partir de URL + HTML */
 function buildReputationHints(url?: string, html?: string) {
+  let domain = ""
+  let tld = ""
+  let isHttps = false
   try {
     const u = url ? new URL(url) : null
-    const domain = u?.hostname || ""
-    const tld = domain.split(".").pop() || ""
-    const suspiciousTlds = new Set(["xyz","top","shop","icu","live","click","cfd","gq","tk","ml","cf","ga"])
-    const isSuspiciousTld = suspiciousTlds.has(tld.toLowerCase())
+    domain = u?.hostname || ""
+    tld = domain.split(".").pop() || ""
+    isHttps = (u?.protocol === "https:")
+  } catch {}
 
-    const hasWhatsApp = !!html?.match(/(api\.whatsapp|wa\.me)\//i)
-    const mentionsPix = !!html?.match(/\bpix\b/i)
-    const mentionsCnpj = !!html?.match(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/i)
-    const hasPrivacy = !!html?.match(/pol[ií]tica de privacidade|privacy policy/i)
-    const hasContact = !!html?.match(/contato|fale conosco|telefone|endereço|sac/i)
+  const s = (html || "")
+  const mentionsPix = /\bpix\b/i.test(s)
+  const hasWhatsApp = /(api\.whatsapp|wa\.me)\//i.test(s)
+  const hasPrivacy = /pol[ií]tica de privacidade|privacy policy/i.test(s)
+  const hasContact = /contato|fale conosco|telefone|endereço|sac/i.test(s)
 
-    const sensitiveFields: string[] = []
-    if (html?.match(/type=["']?password/i)) sensitiveFields.push("senha")
-    if (html?.match(/\bcpf\b/i)) sensitiveFields.push("cpf")
-    if (html?.match(/\b(token|c[oó]digo de seguran[çc]a)\b/i)) sensitiveFields.push("token")
-    if (html?.match(/\bcart[aã]o|cvv\b/i)) sensitiveFields.push("cartao")
-    if (html?.match(/\b(chave\s*pix|cop[íi]a e cola)\b/i)) sensitiveFields.push("chave_pix")
-
-    return {
-      domain,
-      tld,
-      isSuspiciousTld,
-      hasWhatsApp,
-      mentionsPix,
-      mentionsCnpj,
-      hasPrivacy,
-      hasContact,
-      sensitiveFields
+  // CNPJ no conteúdo (valida DV)
+  let cnpj: string | null = null
+  const m = s.match(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b|\b\d{14}\b/g)
+  if (m) {
+    for (const cand of m) {
+      const digits = cand.replace(/\D/g, "")
+      if (validateCNPJ(digits)) { cnpj = digits; break }
     }
-  } catch {
-    return {
-      domain: "",
-      tld: "",
-      isSuspiciousTld: false,
-      hasWhatsApp: false,
-      mentionsPix: false,
-      mentionsCnpj: false,
-      hasPrivacy: false,
-      hasContact: false,
-      sensitiveFields: []
-    }
+  }
+
+  return {
+    domain, tld, isHttps,
+    mentionsPix, hasWhatsApp, hasPrivacy, hasContact,
+    cnpj, cnpjValid: cnpj ? true : false
   }
 }
 
-/** Prompt: analisa SOMENTE a mensagem e as URLs citadas nela; ignora o site do formulário */
+/* =========================
+   Prompt (sem votação popular, sem PIX/EMV)
+   ========================= */
+
 function buildPrompt(params: {
   message: string
-  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: any }>
+  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: ReturnType<typeof buildReputationHints> }>
 }) {
   const { message, analyzedTargets } = params
+
   const targetsBlock = analyzedTargets.length
     ? analyzedTargets.map((t, i) => {
+        const h = t.hints
         return `--- ALVO ${i + 1} ---
 URL: ${t.url}
-HTML_RESUMO: ${t.htmlSummary || "indisponível"}
-SINAIS_REPUTACAO: ${JSON.stringify(t.hints)}`
+TLD: ${h.tld || "—"} | HTTPS: ${h.isHttps ? "sim" : "não"}
+SINAIS:
+- CNPJ: ${h.cnpj ? h.cnpj : "indisponível"} (válido: ${h.cnpjValid ? "sim" : "não"})
+- Política de Privacidade: ${h.hasPrivacy ? "sim" : "não"}
+- Contato oficial: ${h.hasContact ? "sim" : "não"}
+- Menções a PIX: ${h.mentionsPix ? "sim" : "não"}
+- Links WhatsApp: ${h.hasWhatsApp ? "sim" : "não"}
+
+HTML_RESUMO:
+${t.htmlSummary || "indisponível"}`
       }).join("\n\n")
     : "Nenhuma URL foi identificada na mensagem."
 
-  return `Você é um analisador antifraude especializado em websites no Brasil.
+  return `Você é um analisador antifraude especializado em domínios e websites no Brasil.
 
-IMPORTANTE:
-- Analise SOMENTE o conteúdo da MENSAGEM do usuário e as URLs que ela contiver.
-- IGNORE qualquer informação do site/landing/formulário onde o usuário está enviando esta mensagem.
-- Se não houver URL na mensagem, avalie apenas o texto.
-- Classifique como "Seguro", "Cautela" ou "Golpe detectado".
-- "Golpe detectado" somente quando houver ≥2 sinais fortes OU 1 fortíssimo (ex.: coleta de senha/PIX/token, urgência/ameaça, domínio que imita marca + conteúdo falso, HTML com redirecionamentos/metas suspeitas/js ofuscado/iframe oculto/QR PIX falso).
-- Prefira "Cautela" quando houver ambiguidade ou apenas sinais fracos.
-- Responda APENAS no formato: [Classificação]: [Motivo curto em português brasileiro]
-Exemplo: Golpe detectado: Contém pedido urgente de dados pessoais e links suspeitos.
+Entrada:
+- Texto do usuário (mensagem).
+- URLs citadas na mensagem.
+- Sinais de reputação já coletados por URL: tempo de domínio NÃO está disponível aqui; considere TLD/HTTPS/CNPJ/privacidade/contato/menções a PIX/WhatsApp.
 
-DADOS
-[MENSAGEM]
+Regras de análise:
+- "Golpe detectado" apenas se houver ≥2 sinais fortes negativos OU 1 fortíssimo:
+  • Ausência de CNPJ/empresa válida combinada com sinais de coleta sensível/urgência
+  • Reputação externa negativa (se fornecida) ou evidências de fraude no conteúdo
+  • Linguagem de urgência/ameaça + link suspeito
+  • Página solicita senha/token/chave PIX/cartão sem contexto oficial
+- "Seguro" quando:
+  • Conteúdo consistente e institucional; CNPJ válido; políticas/contatos claros
+  • Nenhum pedido suspeito de dados
+- "Cautela" quando:
+  • Há sinais fracos/ambíguos (ex.: somente TLD/HTTPS sem mais evidências)
+  • CNPJ não informado/indisponível; poucas informações externas
+  • Conteúdo neutro (ex.: instrução operacional ou link expirado) sem coleta sensível
+
+⚠️ IMPORTANTE:
+- Não trate SSL/HTTPS como prova de segurança (apenas sinal fraco).
+- Prefira "Cautela" em casos ambíguos.
+
+Responda APENAS no formato:
+[Classificação]: [Motivo curto e objetivo em português brasileiro]
+
+Exemplo:
+Golpe detectado: Domínio sem identificação empresarial e coleta de dados sensíveis.
+
+[DADOS DA MENSAGEM]
 ${message || "indisponível"}
 
-[ALVOS EXTRAÍDOS DA MENSAGEM]
+[ALVOS]
 ${targetsBlock}
 `
 }
+
+/* =========================
+   Função principal (assinatura e insert mantidos)
+   ========================= */
 
 export async function analyzeMessage(formData: FormData): Promise<AnalysisResult> {
   const email = formData.get("email") as string
@@ -123,14 +163,14 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   const message = formData.get("message") as string
   const pageUrl = formData.get("pageUrl") as string
 
-  // Sanitize input - strip HTML tags (apenas na mensagem do usuário)
+  // Sanitize input - strip HTML tags (apenas da mensagem)
   const sanitizedMessage = (message || "").replace(/<[^>]*>/g, "").trim()
 
-  // 1) Extrair URLs da MENSAGEM (não do nosso site)
+  // 1) Extrair URLs da MENSAGEM (não usar pageUrl do seu site para análise)
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
 
-  // 2) Baixar HTML SOMENTE das URLs encontradas na mensagem
-  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: any }> = []
+  // 2) Baixar HTML SOMENTE das URLs da mensagem
+  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: ReturnType<typeof buildReputationHints> }> = []
   for (const targetUrl of urlsFromMessage) {
     try {
       const resp = await fetch(targetUrl, {
@@ -155,7 +195,6 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
   try {
     const apiKey = process.env.GEMINI_API_KEY
-
     let analysisResult: AnalysisResult
 
     if (!apiKey) {
@@ -183,22 +222,17 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
         analysisResult = getMockAnalysis(sanitizedMessage)
       } else {
         const data = await response.json()
-        const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ""
+        const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ""
 
-        // Parse no formato "[Classificação]: [Motivo]"
+        // Parse "[Classificação]: [Motivo]"
         const [classification, ...reasonParts] = aiResponse.split(":")
         const reason = reasonParts.join(":").trim()
 
         let verdict: "seguro" | "cautela" | "golpe" = "cautela"
         const cls = (classification || "").toLowerCase()
-
-        if (cls.includes("seguro")) {
-          verdict = "seguro"
-        } else if (cls.includes("golpe")) {
-          verdict = "golpe"
-        } else {
-          verdict = "cautela"
-        }
+        if (cls.includes("seguro")) verdict = "seguro"
+        else if (cls.includes("golpe")) verdict = "golpe"
+        else verdict = "cautela"
 
         analysisResult = {
           verdict,
@@ -207,13 +241,13 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
       }
     }
 
-    // 3) Persistência inalterada (mantém o padrão do seu site/DB)
+    // 3) Persistência INALTERADA
     try {
       const supabase = await createClient()
       const { error: insertError } = await supabase.from("leads").insert({
         email,
         phone,
-        page_url: pageUrl, // <— apenas registro, não usado na análise
+        page_url: pageUrl, // apenas registro (não usado na análise)
         message: sanitizedMessage,
         analysis_result: analysisResult
       })
@@ -240,19 +274,30 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   }
 }
 
+/* Mock inalterado (mantido) */
 function getMockAnalysis(message: string): AnalysisResult {
   const lowerMessage = (message || "").toLowerCase()
 
-  // Heurística simples — mantém seu padrão de saída e conservadorismo
+  // Simple keyword-based analysis for demo
   const suspiciousKeywords = [
-    "urgente","clique aqui","ganhe dinheiro","prêmio","parabéns",
-    "conta bloqueada","confirme seus dados","pix","transferência",
-    "código de segurança","whatsapp","link","cadastre-se"
+    "urgente",
+    "clique aqui",
+    "ganhe dinheiro",
+    "prêmio",
+    "parabéns",
+    "conta bloqueada",
+    "confirme seus dados",
+    "pix",
+    "transferência",
+    "código de segurança",
+    "whatsapp",
+    "link",
+    "cadastre-se",
   ]
-  const safeKeywords = ["obrigado","agradecimento","informação","newsletter","confirmação de pedido","recibo"]
+  const safeKeywords = ["obrigado", "agradecimento", "informação", "newsletter", "confirmação de pedido", "recibo"]
 
-  const suspiciousCount = suspiciousKeywords.filter(k => lowerMessage.includes(k)).length
-  const safeCount = safeKeywords.filter(k => lowerMessage.includes(k)).length
+  const suspiciousCount = suspiciousKeywords.filter((keyword) => lowerMessage.includes(keyword)).length
+  const safeCount = safeKeywords.filter((keyword) => lowerMessage.includes(keyword)).length
 
   if (suspiciousCount >= 2) {
     return { verdict: "golpe", reason: "Mensagem contém múltiplas palavras-chave suspeitas típicas de golpes." }
