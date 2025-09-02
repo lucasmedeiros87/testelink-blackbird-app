@@ -87,6 +87,51 @@ function buildReputationHints(url?: string, html?: string) {
 }
 
 /* =========================
+   Heurística rápida (bloqueio imediato)
+   ========================= */
+
+/** Heurísticas diretas para jogos/apostas, empréstimos e pornografia */
+function fastHeuristicCheck(message: string, urls: string[]): AnalysisResult | null {
+  const txt = (message || "").toLowerCase()
+
+  // padrões por texto
+  const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game)/i.test(txt)
+  const hasLoan = /(empr[eé]stimo|empr[eé]stimos|parceladiaria|parcela di[aá]ria|cr[eé]dito r[aá]pido|pix na hora|empr[eé]stimo no pix)/i.test(txt)
+  const hasPorn = /\b(porn|xvideos|xhamster|xnxx|redtube|brazzers|onlyfans|sex|adulto|er[oó]tico)\b/i.test(txt)
+
+  // TLDs e domínios recorrentes suspeitos
+  const badTLDs = [".site", ".online", ".shop", ".xyz", ".cc", ".top"]
+  const gamblingHints = /(bet|casino|slots|pggame|spincash|pg(?:game)?|7t|slot)/i
+  const loanHints = /(emprest|parcela|credito|pix)/i
+  const pornHints = /(porn|sex|adult|onlyfans|xvideo|xnxx|xhamster|redtube|brazzers)/i
+
+  const hasBadDomain = urls.some(u => {
+    try {
+      const { hostname } = new URL(u)
+      const lowered = hostname.toLowerCase()
+      return (
+        badTLDs.some(tld => lowered.endsWith(tld)) ||
+        gamblingHints.test(lowered) ||
+        loanHints.test(lowered) ||
+        pornHints.test(lowered)
+      )
+    } catch { return false }
+  })
+
+  // Regras de curto-circuito
+  if (hasGambling || (hasBadDomain && urls.some(u => gamblingHints.test(u)))) {
+    return { verdict: "golpe", reason: "Mensagem contém link de jogos/apostas online em domínio suspeito." }
+  }
+  if (hasPorn || (hasBadDomain && urls.some(u => pornHints.test(u)))) {
+    return { verdict: "golpe", reason: "Mensagem contém link para conteúdo pornográfico em domínio suspeito." }
+  }
+  if (hasLoan && hasBadDomain) {
+    return { verdict: "golpe", reason: "Mensagem contém oferta de empréstimo em domínio suspeito e sem CNPJ válido." }
+  }
+  return null
+}
+
+/* =========================
    Prompt (sem votação popular, sem PIX/EMV)
    ========================= */
 
@@ -119,31 +164,37 @@ ${t.htmlSummary || "indisponível"}`
 Entrada:
 - Texto do usuário (mensagem).
 - URLs citadas na mensagem.
-- Sinais de reputação já coletados por URL: tempo de domínio NÃO está disponível aqui; considere TLD/HTTPS/CNPJ/privacidade/contato/menções a PIX/WhatsApp.
+- Sinais de reputação por URL: TLD/HTTPS, CNPJ (válido/indisponível), Política/Contato, menções a PIX/WhatsApp.
 
 Regras de análise:
 - "Golpe detectado" apenas se houver ≥2 sinais fortes negativos OU 1 fortíssimo:
-  • Ausência de CNPJ/empresa válida combinada com sinais de coleta sensível/urgência
-  • Reputação externa negativa (se fornecida) ou evidências de fraude no conteúdo
+  • Ausência de CNPJ/empresa válida combinada com coleta sensível/urgência
+  • Evidências de fraude no conteúdo (ex.: captura de CPF, senha, token, seed)
   • Linguagem de urgência/ameaça + link suspeito
   • Página solicita senha/token/chave PIX/cartão sem contexto oficial
 - "Seguro" quando:
-  • Conteúdo consistente e institucional; CNPJ válido; políticas/contatos claros
+  • Conteúdo institucional consistente; CNPJ válido; políticas/contatos claros
   • Nenhum pedido suspeito de dados
 - "Cautela" quando:
-  • Há sinais fracos/ambíguos (ex.: somente TLD/HTTPS sem mais evidências)
+  • Sinais fracos/ambíguos (ex.: só HTTPS/TLD)
   • CNPJ não informado/indisponível; poucas informações externas
-  • Conteúdo neutro (ex.: instrução operacional ou link expirado) sem coleta sensível
+  • Conteúdo neutro (ex.: instrução/link expirado) sem coleta sensível
+
+Regras adicionais de classificação (aplique com prioridade):
+- **JOGOS/APOSTAS ONLINE** (bet, casino, slots, pggame, spincash) em domínios suspeitos ou sem reputação → classifique como "Golpe detectado".
+- **EMPRÉSTIMOS/CRÉDITO RÁPIDO** em domínios novos/suspeitos e sem CNPJ válido → classifique como "Golpe detectado".
+- **PORNOGRAFIA** em domínios suspeitos/encurtadores → classifique como "Golpe detectado".
 
 ⚠️ IMPORTANTE:
-- Não trate SSL/HTTPS como prova de segurança (apenas sinal fraco).
-- Prefira "Cautela" em casos ambíguos.
+- HTTPS/selo não provam legitimidade (sinal fraco).
+- Em dúvida, prefira **"Cautela"**.
+- Não invente dados externos que não foram fornecidos.
 
 Responda APENAS no formato:
 [Classificação]: [Motivo curto e objetivo em português brasileiro]
 
 Exemplo:
-Golpe detectado: Domínio sem identificação empresarial e coleta de dados sensíveis.
+Golpe detectado: Painel com pedido de depósito e promessa de ganho sem CNPJ/identificação.
 
 [DADOS DA MENSAGEM]
 ${message || "indisponível"}
@@ -168,6 +219,25 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
   // 1) Extrair URLs da MENSAGEM (não usar pageUrl do seu site para análise)
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
+
+  // 1.1) Heurística imediata (bloqueio rápido)
+  const heuristicVerdict = fastHeuristicCheck(sanitizedMessage, urlsFromMessage)
+  if (heuristicVerdict) {
+    // Persistência INALTERADA (salvamos mesmo os resultados heurísticos)
+    try {
+      const supabase = await createClient()
+      await supabase.from("leads").insert({
+        email,
+        phone,
+        page_url: pageUrl,
+        message: sanitizedMessage,
+        analysis_result: heuristicVerdict
+      })
+    } catch (e) {
+      console.error("[v0] Supabase error (heuristic):", e)
+    }
+    return heuristicVerdict
+  }
 
   // 2) Baixar HTML SOMENTE das URLs da mensagem
   const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: ReturnType<typeof buildReputationHints> }> = []
