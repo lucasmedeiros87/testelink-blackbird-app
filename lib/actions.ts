@@ -25,6 +25,11 @@ function extractUrlsFromText(text: string, max = 2): string[] {
   return Array.from(urls)
 }
 
+/** Pega o hostname seguro (sem porta) */
+function getHostname(u: string): string | null {
+  try { return new URL(u).hostname.toLowerCase() } catch { return null }
+}
+
 /** Remove <script>/<style>, normaliza espaços e limita tamanho */
 function summarizeHtml(raw: string, maxLen = 9000) {
   const noScripts = raw
@@ -87,47 +92,78 @@ function buildReputationHints(url?: string, html?: string) {
 }
 
 /* =========================
+   Lista de apostas legalizadas (allowlist via ENV)
+   ========================= */
+
+/**
+ * Carrega domínios autorizados (SPA/MF) a partir da env BET_AUTH_DOMAINS.
+ * Ex.: BET_AUTH_DOMAINS=superbet.bet.br,betnacional.com.br,exemplo.com.br
+ */
+function loadAuthorizedBetDomains(): Set<string> {
+  const raw = process.env.BET_AUTH_DOMAINS || ""
+  const set = new Set<string>()
+  raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean).forEach(d => set.add(d))
+  return set
+}
+
+/** Checa se algum hostname das URLs bate com a allowlist de apostas */
+function anyAuthorizedBetDomain(urls: string[], allow: Set<string>): boolean {
+  for (const u of urls) {
+    const host = getHostname(u)
+    if (host && allow.has(host)) return true
+  }
+  return false
+}
+
+/* =========================
    Heurística rápida (bloqueio imediato)
    ========================= */
 
-/** Heurísticas diretas para jogos/apostas, empréstimos e pornografia */
+/** Heurísticas diretas para jogos/apostas, empréstimos e pornografia (com legalização) */
 function fastHeuristicCheck(message: string, urls: string[]): AnalysisResult | null {
   const txt = (message || "").toLowerCase()
 
   // padrões por texto
-  const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game)/i.test(txt)
+  const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game|777|slot)/i.test(txt)
   const hasLoan = /(empr[eé]stimo|empr[eé]stimos|parceladiaria|parcela di[aá]ria|cr[eé]dito r[aá]pido|pix na hora|empr[eé]stimo no pix)/i.test(txt)
   const hasPorn = /\b(porn|xvideos|xhamster|xnxx|redtube|brazzers|onlyfans|sex|adulto|er[oó]tico)\b/i.test(txt)
 
   // TLDs e domínios recorrentes suspeitos
   const badTLDs = [".site", ".online", ".shop", ".xyz", ".cc", ".top"]
-  const gamblingHints = /(bet|casino|slots|pggame|spincash|pg(?:game)?|7t|slot)/i
+  const gamblingHints = /(bet|casino|slots|pggame|spincash|pg(?:game)?|777|slot|pgg)/i
   const loanHints = /(emprest|parcela|credito|pix)/i
   const pornHints = /(porn|sex|adult|onlyfans|xvideo|xnxx|xhamster|redtube|brazzers)/i
 
   const hasBadDomain = urls.some(u => {
-    try {
-      const { hostname } = new URL(u)
-      const lowered = hostname.toLowerCase()
-      return (
-        badTLDs.some(tld => lowered.endsWith(tld)) ||
-        gamblingHints.test(lowered) ||
-        loanHints.test(lowered) ||
-        pornHints.test(lowered)
-      )
-    } catch { return false }
+    const host = getHostname(u) || ""
+    return (
+      badTLDs.some(tld => host.endsWith(tld)) ||
+      gamblingHints.test(host) ||
+      loanHints.test(host) ||
+      pornHints.test(host)
+    )
   })
 
+  // >>> Verificação de apostas legalizadas (allowlist)
+  const allow = loadAuthorizedBetDomains()
+  const isAuthorizedBet = anyAuthorizedBetDomain(urls, allow)
+
   // Regras de curto-circuito
-  if (hasGambling || (hasBadDomain && urls.some(u => gamblingHints.test(u)))) {
-    return { verdict: "golpe", reason: "Mensagem contém link de jogos/apostas online em domínio suspeito." }
+  // 1) Apostas: se for jogo/aposta e NÃO estiver na allowlist -> golpe
+  if ((hasGambling || urls.some(u => gamblingHints.test(getHostname(u) || ""))) && !isAuthorizedBet) {
+    return { verdict: "golpe", reason: "Site de apostas não consta como autorizado no Brasil (domínio fora da lista oficial)." }
   }
-  if (hasPorn || (hasBadDomain && urls.some(u => pornHints.test(u)))) {
+
+  // 2) Pornografia: sempre bloqueia em domínio suspeito ou menções claras
+  if (hasPorn || (hasBadDomain && urls.some(u => pornHints.test(getHostname(u) || "")))) {
     return { verdict: "golpe", reason: "Mensagem contém link para conteúdo pornográfico em domínio suspeito." }
   }
+
+  // 3) Empréstimos: domínio suspeito + termos de empréstimo -> golpe
   if (hasLoan && hasBadDomain) {
     return { verdict: "golpe", reason: "Mensagem contém oferta de empréstimo em domínio suspeito e sem CNPJ válido." }
   }
+
   return null
 }
 
@@ -181,7 +217,7 @@ Regras de análise:
   • Conteúdo neutro (ex.: instrução/link expirado) sem coleta sensível
 
 Regras adicionais de classificação (aplique com prioridade):
-- **JOGOS/APOSTAS ONLINE** (bet, casino, slots, pggame, spincash) em domínios suspeitos ou sem reputação → classifique como "Golpe detectado".
+- **JOGOS/APOSTAS ONLINE**: se o domínio NÃO estiver na lista oficial de autorizados no Brasil → classifique como "Golpe detectado".
 - **EMPRÉSTIMOS/CRÉDITO RÁPIDO** em domínios novos/suspeitos e sem CNPJ válido → classifique como "Golpe detectado".
 - **PORNOGRAFIA** em domínios suspeitos/encurtadores → classifique como "Golpe detectado".
 
@@ -194,7 +230,7 @@ Responda APENAS no formato:
 [Classificação]: [Motivo curto e objetivo em português brasileiro]
 
 Exemplo:
-Golpe detectado: Painel com pedido de depósito e promessa de ganho sem CNPJ/identificação.
+Golpe detectado: Site de apostas fora da lista oficial de autorizados no Brasil.
 
 [DADOS DA MENSAGEM]
 ${message || "indisponível"}
@@ -220,7 +256,7 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   // 1) Extrair URLs da MENSAGEM (não usar pageUrl do seu site para análise)
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
 
-  // 1.1) Heurística imediata (bloqueio rápido)
+  // 1.1) Heurística imediata (bloqueio rápido + legalização de apostas)
   const heuristicVerdict = fastHeuristicCheck(sanitizedMessage, urlsFromMessage)
   if (heuristicVerdict) {
     // Persistência INALTERADA (salvamos mesmo os resultados heurísticos)
