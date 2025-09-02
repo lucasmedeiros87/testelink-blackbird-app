@@ -92,39 +92,71 @@ function buildReputationHints(url?: string, html?: string) {
 }
 
 /* =========================
-   Lista de apostas legalizadas (allowlist via ENV)
+   Descoberta dinâmica da lista oficial (gov.br)
    ========================= */
 
-/**
- * Carrega domínios autorizados (SPA/MF) a partir da env BET_AUTH_DOMAINS.
- * Ex.: BET_AUTH_DOMAINS=superbet.bet.br,betnacional.com.br,exemplo.com.br
- */
-function loadAuthorizedBetDomains(): Set<string> {
-  const raw = process.env.BET_AUTH_DOMAINS || ""
-  const set = new Set<string>()
-  raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean).forEach(d => set.add(d))
-  return set
+/** Encontra automaticamente o link CSV mais recente na página oficial da SPA/MF */
+async function discoverSpaCsvUrl(): Promise<string | null> {
+  try {
+    const page = await fetch("https://www.gov.br/fazenda/pt-br/composicao/orgaos/secretaria-de-premios-e-apostas/lista-de-empresas", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" },
+    })
+    if (!page.ok) return null
+    const html = await page.text()
+    // procura <a href="...csv"> próximo do bloco “Empresas autorizadas...”
+    const csvHrefMatch = html.match(/href="([^"]+\.csv)"/i)
+    if (csvHrefMatch?.[1]) {
+      const href = csvHrefMatch[1]
+      if (href.startsWith("http")) return href
+      // construir URL absoluto
+      const base = new URL("https://www.gov.br")
+      return new URL(href, base).toString()
+    }
+  } catch (e) {
+    console.error("[v0] discoverSpaCsvUrl error:", e)
+  }
+  return null
 }
 
-/** Checa se algum hostname das URLs bate com a allowlist de apostas */
-function anyAuthorizedBetDomain(urls: string[], allow: Set<string>): boolean {
-  for (const u of urls) {
-    const host = getHostname(u)
-    if (host && allow.has(host)) return true
+/** Faz download do CSV oficial e extrai domínios (retorna Set<domain>) */
+async function fetchSpaAuthorizedDomains(): Promise<Set<string>> {
+  const out = new Set<string>()
+  try {
+    const csvUrl = await discoverSpaCsvUrl()
+    if (!csvUrl) return out
+    const resp = await fetch(csvUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" },
+    })
+    if (!resp.ok) return out
+    const text = await resp.text()
+    // Extrai domínios por regex (captura algo tipo foo.bar.tld, incluindo subdomínios bet.br)
+    const domainRegex = /\b([a-z0-9-]+(?:\.[a-z0-9-]+){1,})\b/gi
+    let m: RegExpExecArray | null
+    while ((m = domainRegex.exec(text))) {
+      const d = m[1].toLowerCase()
+      // filtro simples: evita capturar strings não-domínio (ex: cnpjs)
+      if (/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(d)) continue // CNPJ
+      if (d.includes("@")) continue // emails
+      if (d.endsWith(".csv") || d.endsWith(".pdf")) continue
+      // preferir domínios com TLD conhecido
+      if (/\.[a-z]{2,}(?:\.[a-z]{2,})?$/.test(d)) out.add(d)
+    }
+  } catch (e) {
+    console.error("[v0] fetchSpaAuthorizedDomains error:", e)
   }
-  return false
+  return out
 }
 
 /* =========================
-   Heurística rápida (bloqueio imediato)
+   Heurística rápida (bloqueio imediato com pesquisa online)
    ========================= */
 
-/** Heurísticas diretas para jogos/apostas, empréstimos e pornografia (com legalização) */
-function fastHeuristicCheck(message: string, urls: string[]): AnalysisResult | null {
+/** Heurísticas diretas para jogos/apostas, empréstimos e pornografia (com verificação gov.br para apostas) */
+async function fastHeuristicCheckAsync(message: string, urls: string[]): Promise<AnalysisResult | null> {
   const txt = (message || "").toLowerCase()
 
   // padrões por texto
-  const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game|777|slot)/i.test(txt)
+  const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game|777|slot|casino)/i.test(txt)
   const hasLoan = /(empr[eé]stimo|empr[eé]stimos|parceladiaria|parcela di[aá]ria|cr[eé]dito r[aá]pido|pix na hora|empr[eé]stimo no pix)/i.test(txt)
   const hasPorn = /\b(porn|xvideos|xhamster|xnxx|redtube|brazzers|onlyfans|sex|adulto|er[oó]tico)\b/i.test(txt)
 
@@ -144,24 +176,31 @@ function fastHeuristicCheck(message: string, urls: string[]): AnalysisResult | n
     )
   })
 
-  // >>> Verificação de apostas legalizadas (allowlist)
-  const allow = loadAuthorizedBetDomains()
-  const isAuthorizedBet = anyAuthorizedBetDomain(urls, allow)
-
-  // Regras de curto-circuito
-  // 1) Apostas: se for jogo/aposta e NÃO estiver na allowlist -> golpe
-  if ((hasGambling || urls.some(u => gamblingHints.test(getHostname(u) || ""))) && !isAuthorizedBet) {
-    return { verdict: "golpe", reason: "Site de apostas não consta como autorizado no Brasil (domínio fora da lista oficial)." }
-  }
-
-  // 2) Pornografia: sempre bloqueia em domínio suspeito ou menções claras
+  // 1) Pornografia: bloqueio direto se presente
   if (hasPorn || (hasBadDomain && urls.some(u => pornHints.test(getHostname(u) || "")))) {
     return { verdict: "golpe", reason: "Mensagem contém link para conteúdo pornográfico em domínio suspeito." }
   }
 
-  // 3) Empréstimos: domínio suspeito + termos de empréstimo -> golpe
+  // 2) Empréstimos: domínio suspeito + termos de empréstimo -> golpe
   if (hasLoan && hasBadDomain) {
     return { verdict: "golpe", reason: "Mensagem contém oferta de empréstimo em domínio suspeito e sem CNPJ válido." }
+  }
+
+  // 3) Apostas/jogos: se houver, validar domínio no gov.br (lista oficial dinâmica)
+  if (hasGambling || urls.some(u => gamblingHints.test(getHostname(u) || ""))) {
+    const govSet = await fetchSpaAuthorizedDomains() // pesquisa geral online
+    if (govSet.size === 0) {
+      // falha em obter lista: não marcamos golpe automático; deixamos para o LLM
+      return null
+    }
+    const anyAuthorized = urls.some(u => {
+      const host = getHostname(u)
+      return host ? govSet.has(host) : false
+    })
+    if (!anyAuthorized) {
+      return { verdict: "golpe", reason: "Site de apostas não consta como autorizado no Brasil (lista oficial gov.br)." }
+    }
+    // se autorizado, seguimos fluxo normal (sem golpe automático)
   }
 
   return null
@@ -217,7 +256,7 @@ Regras de análise:
   • Conteúdo neutro (ex.: instrução/link expirado) sem coleta sensível
 
 Regras adicionais de classificação (aplique com prioridade):
-- **JOGOS/APOSTAS ONLINE**: se o domínio NÃO estiver na lista oficial de autorizados no Brasil → classifique como "Golpe detectado".
+- **JOGOS/APOSTAS ONLINE**: se o domínio NÃO estiver na lista oficial de autorizados no Brasil (gov.br) → classifique como "Golpe detectado".
 - **EMPRÉSTIMOS/CRÉDITO RÁPIDO** em domínios novos/suspeitos e sem CNPJ válido → classifique como "Golpe detectado".
 - **PORNOGRAFIA** em domínios suspeitos/encurtadores → classifique como "Golpe detectado".
 
@@ -256,10 +295,10 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   // 1) Extrair URLs da MENSAGEM (não usar pageUrl do seu site para análise)
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
 
-  // 1.1) Heurística imediata (bloqueio rápido + legalização de apostas)
-  const heuristicVerdict = fastHeuristicCheck(sanitizedMessage, urlsFromMessage)
+  // 1.1) Heurística imediata (com verificação online gov.br p/apostas)
+  const heuristicVerdict = await fastHeuristicCheckAsync(sanitizedMessage, urlsFromMessage)
   if (heuristicVerdict) {
-    // Persistência INALTERADA (salvamos mesmo os resultados heurísticos)
+    // Persistência INALTERADA
     try {
       const supabase = await createClient()
       await supabase.from("leads").insert({
