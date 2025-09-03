@@ -22,15 +22,13 @@ function extractUrlsFromText(text: string, max = 2): string[] {
   return Array.from(urls)
 }
 
-/** Também extrai domínios "nus" (sem esquema), ex.: superbet.bet.br */
+/** Também extrai domínios “nus” (sem http/https), ex.: superbet.bet.br */
 function extractBareDomains(text: string, max = 3): string[] {
   const out = new Set<string>()
-  // captura tokens com pelo menos um ponto e TLD válido (2+ letras)
   const re = /\b([a-z0-9-]+(?:\.[a-z0-9-]+){1,})\b/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) && out.size < max) {
     const token = (m[1] || "").toLowerCase()
-    // ignora emails, CNPJs e coisas óbvias que não são host
     if (token.includes("@")) continue
     if (/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(token)) continue
     if (!/\.[a-z]{2,}(?:\.[a-z]{2,})?$/.test(token)) continue
@@ -71,7 +69,7 @@ function validateCNPJ(cnpjRaw: string): boolean {
 }
 
 /* =========================
-   Hints + Issues
+   Hints + Issues (linguagem popular)
    ========================= */
 
 type Hints = {
@@ -122,28 +120,27 @@ function buildReputationHints(url?: string, html?: string): Omit<Hints, "ageDays
   }
 }
 
-/** Constrói lista de problemas encontrados num alvo */
+/** Constrói lista de problemas em linguagem popular para um alvo */
 function collectIssues(hints: Hints): string[] {
   const issues: string[] = []
-  if (!hints.cnpj) issues.push("CNPJ indisponível")
-  if (hints.cnpj && !hints.cnpjValid) issues.push("CNPJ inválido")
-  if (!hints.hasPrivacy) issues.push("Política de privacidade ausente")
-  if (!hints.hasContact) issues.push("Informações de contato ausentes")
-  if (hints.mentionsPix) issues.push("Menções a PIX (potencial cobrança)")
-  if (hints.hasWhatsApp) issues.push("Uso de WhatsApp como canal primário")
+  if (!hints.cnpj) issues.push("não informa CNPJ")
+  if (hints.cnpj && !hints.cnpjValid) issues.push("CNPJ parece inválido")
+  if (!hints.hasPrivacy) issues.push("não tem política de privacidade")
+  if (!hints.hasContact) issues.push("não mostra como falar com a empresa")
+  if (hints.mentionsPix) issues.push("fala de PIX (pode ser cobrança)")
+  if (hints.hasWhatsApp) issues.push("pede contato só por WhatsApp")
   if (typeof hints.ageDays === "number") {
-    if (hints.ageDays < 60) issues.push(`Domínio recente (${hints.ageDays} dias)`)
+    if (hints.ageDays < 60) issues.push(`site muito novo (só ${hints.ageDays} dias no ar)`)
   } else {
-    issues.push("Idade do domínio indisponível")
+    issues.push("não deu pra saber há quanto tempo o site existe")
   }
   return issues
 }
 
 /* =========================
-   RDAP GLOBAL (IANA bootstrap) — idade de domínio para qualquer TLD
+   RDAP GLOBAL (IANA bootstrap) — idade de domínio qualquer TLD
    ========================= */
 
-// Cache do bootstrap IANA: TLD -> array de servidores RDAP
 let RDAP_BOOTSTRAP: Record<string, string[]> | null = null
 let RDAP_BOOTSTRAP_FETCHED_AT = 0
 const RDAP_BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000 // 24h
@@ -183,11 +180,10 @@ async function rdapServersForTld(tld: string): Promise<string[]> {
   return bootstrap[tld.toLowerCase()] || []
 }
 
-/** tenta resolver idade (dias) para um host (subdomínios aceitos) */
+/** Idade (dias) para um host; tenta do host até “nome.tld” */
 async function fetchDomainAgeDaysGlobal(host: string): Promise<number | null> {
   host = (host || "").toLowerCase()
   if (!host.includes(".")) return null
-
   const parts = host.split(".")
   const candidates: string[] = []
   for (let i = 0; i <= parts.length - 2; i++) {
@@ -222,11 +218,12 @@ async function fetchDomainAgeDaysGlobal(host: string): Promise<number | null> {
 }
 
 /* =========================
-   Allowlist local de apostas (CONST + .env) — sem export
+   Allowlist de apostas (CONST + ENV)
    ========================= */
 
 const norm = (d: string) => (d || "").trim().toLowerCase()
 
+// NÃO exportar este Set
 const AUTHORIZED_BET_DOMAINS = new Set<string>([
   "betano.bet.br","superbet.bet.br","magicjackpot.bet.br","super.bet.br",
   "reidopitaco.bet.br","pitaco.bet.br","rdp.bet.br","sportingbet.bet.br",
@@ -296,14 +293,14 @@ function isHostAuthorizedBySet(host: string, set: Set<string>): boolean {
 }
 
 /* =========================
-   Heurística rápida (bloqueio imediato com allowlist local)
+   Heurística rápida (bloqueio imediato com allowlist)
    ========================= */
 
-/** Heurísticas para jogos/apostas, empréstimos e pornografia (usa allowlist local) */
+/** Heurísticas p/ apostas, empréstimos e pornografia (usa allowlist CONST+ENV) */
 async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[]): Promise<AnalysisResult | null> {
   const txt = (message || "").toLowerCase()
 
-  // padrões por texto
+  // Padrões por texto
   const hasGambling = /(bet|casino|slots|pggame|spincash|pg\s*game|777|slot|casino)/i.test(txt)
   const hasLoan = /(empr[eé]stimo|empr[eé]stimos|parceladiaria|parcela di[aá]ria|cr[eé]dito r[aá]pido|pix na hora|empr[eé]stimo no pix)/i.test(txt)
   const hasPorn = /\b(porn|xvideos|xhamster|xnxx|redtube|brazzers|onlyfans|sex|adulto|er[oó]tico)\b/i.test(txt)
@@ -312,7 +309,7 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
   const loanHints = /(emprest|parcela|credito|pix)/i
   const pornHints = /(porn|sex|adult|onlyfans|xvideo|xnxx|xhamster|redtube|brazzers)/i
 
-  // Deriva hostnames de tudo que veio (URLs e domínios nus)
+  // Hosts de tudo (urls e domínios nus)
   const hosts: string[] = []
   for (const token of urlsOrDomains) {
     const hostFromUrl = getHostname(token)
@@ -325,23 +322,23 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
     badTLDs.some(tld => h.endsWith(tld)) || gamblingHints.test(h) || loanHints.test(h) || pornHints.test(h)
   )
 
-  // 1) Pornografia: bloqueio direto se presente
+  // Pornografia: bloqueio direto
   if (hasPorn || (hasBadDomain && hosts.some(h => pornHints.test(h)))) {
-    return { verdict: "golpe", reason: "Mensagem contém link para conteúdo pornográfico em domínio suspeito." }
+    return { verdict: "golpe", reason: "O link leva para conteúdo adulto em site suspeito." }
   }
 
-  // 2) Empréstimos: domínio suspeito + termos de empréstimo -> golpe
+  // Empréstimos: domínio suspeito + termos de empréstimo -> golpe
   if (hasLoan && hasBadDomain) {
-    return { verdict: "golpe", reason: "Mensagem contém oferta de empréstimo em domínio suspeito e sem CNPJ válido." }
+    return { verdict: "golpe", reason: "Oferta de empréstimo em site suspeito e sem sinais claros de empresa real." }
   }
 
-  // 3) Apostas/jogos: checa allowlist local (CONST + ENV)
+  // Apostas/jogos: checa allowlist (CONST + ENV)
   const hasGamblingByHost = hosts.some(h => gamblingHints.test(h))
   if (hasGambling || hasGamblingByHost) {
     const allow = loadAuthorizedBetDomainsLocal()
     const anyAuthorized = hosts.some(h => isHostAuthorizedBySet(h, allow))
     if (!anyAuthorized) {
-      return { verdict: "golpe", reason: "Site de apostas não consta na allowlist (autorizados no Brasil)." }
+      return { verdict: "golpe", reason: "Esse site de apostas não aparece na lista de sites permitidos no Brasil." }
     }
     // se autorizado, segue fluxo normal
   }
@@ -350,15 +347,14 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
 }
 
 /* =========================
-   Prompt (inclui allowlist local no texto)
+   Prompt (passando resumo da allowlist)
    ========================= */
 
 function buildPrompt(params: {
   message: string
   analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }>
-  allowlistForPrompt: string[]
 }) {
-  const { message, analyzedTargets, allowlistForPrompt } = params
+  const { message, analyzedTargets } = params
 
   const targetsBlock = analyzedTargets.length
     ? analyzedTargets.map((t, i) => {
@@ -367,58 +363,58 @@ function buildPrompt(params: {
 URL: ${t.url}
 TLD: ${h.tld || "—"} | HTTPS: ${h.isHttps ? "sim" : "não"}
 SINAIS:
-* CNPJ: ${h.cnpj ? h.cnpj : "indisponível"} (válido: ${h.cnpjValid ? "sim" : "não"})
-* Política de Privacidade: ${h.hasPrivacy ? "sim" : "não"}
-* Contato oficial: ${h.hasContact ? "sim" : "não"}
-* Menções a PIX: ${h.mentionsPix ? "sim" : "não"}
-* Links WhatsApp: ${h.hasWhatsApp ? "sim" : "não"}
+- CNPJ: ${h.cnpj ? h.cnpj : "indisponível"} (válido: ${h.cnpjValid ? "sim" : "não"})
+- Política de Privacidade: ${h.hasPrivacy ? "sim" : "não"}
+- Contato oficial: ${h.hasContact ? "sim" : "não"}
+- Menções a PIX: ${h.mentionsPix ? "sim" : "não"}
+- Links WhatsApp: ${h.hasWhatsApp ? "sim" : "não"}
 
 HTML_RESUMO:
 ${t.htmlSummary || "indisponível"}`
       }).join("\n\n")
     : "Nenhuma URL foi identificada na mensagem."
 
-  const allowlistText = allowlistForPrompt.join(", ")
+  // Passa uma amostra da allowlist para contexto do LLM (evita prompt gigante)
+  const allow = Array.from(loadAuthorizedBetDomainsLocal())
+  const allowExamples = allow.slice(0, 40).join(", ")
+  const allowNote = `ALLOWLIST_APOSTAS: total=${allow.length}; exemplos: ${allowExamples}`
 
-  return `Você é um analisador antifraude especializado em domínios e websites no Brasil.
-
-[ALLOWLIST_APOSTAS]
-${allowlistText}
+  return `Você é um analisador antifraude no Brasil. Analise SOMENTE o que foi fornecido.
 
 Entrada:
-* Texto do usuário (mensagem).
-* URLs/domínios citados na mensagem.
-* Sinais de reputação por URL: TLD/HTTPS, CNPJ (válido/indisponível), Política/Contato, menções a PIX/WhatsApp.
+- Texto do usuário.
+- URLs/domínios citados.
+- Sinais já coletados: TLD/HTTPS, CNPJ (válido/indisponível), Política/Contato, menções a PIX/WhatsApp.
+- ${allowNote}
 
-Regras de análise:
-* "Golpe detectado" apenas se houver ≥2 sinais fortes negativos OU 1 fortíssimo:
-  • Ausência de CNPJ/empresa válida combinada com coleta sensível/urgência
-  • Evidências de fraude no conteúdo (ex.: captura de CPF, senha, token, seed)
+Critérios:
+- "Golpe detectado" quando houver ≥2 sinais fortes negativos OU 1 fortíssimo:
+  • Não tem CNPJ/empresa e pede dados sensíveis/urgência
+  • Pede CPF/senha/token/seed/cartão sem ser serviço oficial
   • Linguagem de urgência/ameaça + link suspeito
-  • Página solicita senha/token/chave PIX/cartão sem contexto oficial
-* "Seguro" quando:
-  • Conteúdo institucional consistente; CNPJ válido; políticas/contatos claros
-  • Nenhum pedido suspeito de dados
-* "Cautela" quando:
-  • Sinais fracos/ambíguos (ex.: só HTTPS/TLD)
-  • CNPJ não informado/indisponível; poucas informações externas
-  • Conteúdo neutro (ex.: instrução/link expirado) sem coleta sensível
+- "Seguro" quando:
+  • Aparência institucional; CNPJ válido; políticas/contatos claros
+  • Não pede dados suspeitos
+- "Cautela" quando:
+  • Sinais fracos/ambíguos (só HTTPS/TLD)
+  • Não informa CNPJ; pouca transparência
+  • Link expirado/sem contexto
 
-Regras adicionais de classificação (aplique com prioridade):
-* **JOGOS/APOSTAS ONLINE**: se o domínio NÃO estiver na allowlist acima → "Golpe detectado".
-* **EMPRÉSTIMOS/CRÉDITO RÁPIDO** em domínios novos/suspeitos e sem CNPJ válido → "Golpe detectado".
-* **PORNOGRAFIA** em domínios suspeitos/encurtadores → "Golpe detectado".
+Regras extras:
+- APOSTAS: se o domínio NÃO estiver na allowlist (exemplos acima, e validação feita fora do seu texto) → classifique como "Golpe detectado".
+- EMPRÉSTIMOS/CRÉDITO RÁPIDO: em domínio novo/suspeito e sem CNPJ → "Golpe detectado".
+- PORNOGRAFIA: em domínio suspeito/encurtador → "Golpe detectado".
 
 ⚠️ IMPORTANTE:
-* HTTPS/selo não provam legitimidade (sinal fraco).
-* Em dúvida, prefira **"Cautela"**.
-* Não invente dados externos que não foram fornecidos.
+- SSL/HTTPS é só um sinal fraco.
+- Na dúvida, use "Cautela".
+- Não invente dados externos.
 
-Responda APENAS no formato:
-[Classificação]: [Motivo curto e objetivo em português brasileiro]
+Responda APENAS neste formato (sem variações):
+[Classificação]: [Motivo curto e popular em português brasileiro]
 
 Exemplo:
-Golpe detectado: Site de apostas fora da lista de autorizados no Brasil.
+Golpe detectado: Site de apostas fora da lista permitida no Brasil.
 
 [DADOS DA MENSAGEM]
 ${message || "indisponível"}
@@ -440,12 +436,12 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
   const sanitizedMessage = (message || "").replace(/<[^>]*>/g, "").trim()
 
-  // URLs da MENSAGEM + domínios nus
+  // URLs + domínios nus
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
   const bareDomains = extractBareDomains(sanitizedMessage, 3)
   const tokensForHeuristic = [...urlsFromMessage, ...bareDomains]
 
-  // Heurística imediata (usa allowlist local)
+  // Heurística imediata
   const heuristicVerdict = await fastHeuristicCheckAsync(sanitizedMessage, tokensForHeuristic)
   if (heuristicVerdict) {
     try {
@@ -463,7 +459,7 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
     return heuristicVerdict
   }
 
-  // Baixar HTML SOMENTE das URLs (não tentamos http/https em domínios nus)
+  // Baixa HTML só das URLs
   const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }> = []
   for (const targetUrl of urlsFromMessage) {
     try {
@@ -487,7 +483,7 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
     }
   }
 
-  // ===== RDAP: enriquecer hints com idade de domínio (global) =====
+  // Idade de domínio (global via RDAP)
   const analyzedWithAges: Array<{ url: string; htmlSummary: string; hints: Hints }> = []
   for (const item of analyzedTargets) {
     const host = getHostname(item.url) || ""
@@ -501,18 +497,9 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
     if (!apiKey) {
       console.error("[v0] GEMINI_API_KEY not found in environment variables")
-      // fallback de mock
       analysisResult = getMockAnalysis(sanitizedMessage)
     } else {
-      // allowlist local para o prompt (inclui .env se houver)
-      const allowForPrompt = Array.from(loadAuthorizedBetDomainsLocal()).sort()
-
-      const prompt = buildPrompt({
-        message: sanitizedMessage,
-        analyzedTargets: analyzedTargets, // prompt não inclui age (para não estourar contexto)
-        allowlistForPrompt: allowForPrompt
-      })
-
+      const prompt = buildPrompt({ message: sanitizedMessage, analyzedTargets })
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
@@ -536,7 +523,17 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
         // Parse "[Classificação]: [Motivo]"
         const [classification, ...reasonParts] = aiResponse.split(":")
-        const llmReason = reasonParts.join(":").trim()
+        const llmReasonRaw = reasonParts.join(":").trim()
+
+        // Normaliza motivo do LLM para linguagem popular (garantir simplicidade)
+        const llmReason = llmReasonRaw
+          .replace(/CNPJ indispon[ií]vel/gi, "não informa CNPJ")
+          .replace(/pol[ií]tica de privacidade ausente/gi, "não tem política de privacidade")
+          .replace(/informa[cç][oõ]es de contato ausentes/gi, "não mostra como falar com a empresa")
+          .replace(/dom[ií]nio recente/gi, "site muito novo")
+          .replace(/conte[úu]do adulto/gi, "conteúdo adulto")
+          .replace(/\s+/g, " ")
+          .trim()
 
         let verdict: "seguro" | "cautela" | "golpe" = "cautela"
         const cls = (classification || "").toLowerCase()
@@ -544,20 +541,19 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
         else if (cls.includes("golpe")) verdict = "golpe"
         else verdict = "cautela"
 
-        // ===== Agregar TODOS os problemas por URL =====
+        // Monta problemas por URL (linguagem popular)
         const perUrlIssues: string[] = []
         for (const t of analyzedWithAges) {
           const issues = collectIssues(t.hints)
           if (issues.length) perUrlIssues.push(`[${t.url}] ${issues.join("; ")}`)
         }
 
-        analysisResult = {
-          verdict,
-          reason:
-            perUrlIssues.length
-              ? (llmReason ? `${llmReason} | ${perUrlIssues.join(" | ")}` : perUrlIssues.join(" | "))
-              : (llmReason || "Análise concluída. Verifique as recomendações de segurança.")
-        }
+        const finalReason =
+          perUrlIssues.length
+            ? (llmReason ? `${llmReason} | ${perUrlIssues.join(" | ")}` : perUrlIssues.join(" | "))
+            : (llmReason || "Análise feita. Use com atenção.")
+
+        analysisResult = { verdict, reason: finalReason }
       }
     }
 
@@ -591,7 +587,10 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   }
 }
 
-/* Mock inalterado (mantido) */
+/* =========================
+   Mock (linguagem popular)
+   ========================= */
+
 function getMockAnalysis(message: string): AnalysisResult {
   const lowerMessage = (message || "").toLowerCase()
 
@@ -606,12 +605,12 @@ function getMockAnalysis(message: string): AnalysisResult {
   const safeCount = safeKeywords.filter((k) => lowerMessage.includes(k)).length
 
   if (suspiciousCount >= 2) {
-    return { verdict: "golpe", reason: "Mensagem contém múltiplas palavras-chave suspeitas típicas de golpes." }
+    return { verdict: "golpe", reason: "Tem vários sinais de golpe na mensagem." }
   } else if (suspiciousCount >= 1) {
-    return { verdict: "cautela", reason: "Mensagem contém elementos que requerem atenção. Verifique a origem antes de agir." }
+    return { verdict: "cautela", reason: "Tem alguns sinais estranhos. Melhor conferir antes de agir." }
   } else if (safeCount > 0) {
-    return { verdict: "seguro", reason: "Mensagem parece ser legítima, mas sempre confirme a origem." }
+    return { verdict: "seguro", reason: "Parece mensagem normal, mas sempre confira a fonte." }
   } else {
-    return { verdict: "cautela", reason: "Não foi possível determinar com certeza. Sempre verifique a origem da mensagem." }
+    return { verdict: "cautela", reason: "Não deu pra ter certeza. Melhor conferir a origem." }
   }
 }
