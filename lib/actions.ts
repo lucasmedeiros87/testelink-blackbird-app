@@ -70,8 +70,25 @@ function validateCNPJ(cnpjRaw: string): boolean {
   return cnpj.slice(12) === `${dv1}${dv2}`
 }
 
-/** Extrai sinais de reputação leve a partir de URL + HTML */
-function buildReputationHints(url?: string, html?: string) {
+/* =========================
+   Hints + Issues
+   ========================= */
+
+type Hints = {
+  domain: string
+  tld: string
+  isHttps: boolean
+  mentionsPix: boolean
+  hasWhatsApp: boolean
+  hasPrivacy: boolean
+  hasContact: boolean
+  cnpj: string | null
+  cnpjValid: boolean
+  ageDays: number | null
+}
+
+/** Extrai sinais de reputação leve (sem idade) a partir de URL + HTML */
+function buildReputationHints(url?: string, html?: string): Omit<Hints, "ageDays"> {
   let domain = ""
   let tld = ""
   let isHttps = false
@@ -101,8 +118,108 @@ function buildReputationHints(url?: string, html?: string) {
   return {
     domain, tld, isHttps,
     mentionsPix, hasWhatsApp, hasPrivacy, hasContact,
-    cnpj, cnpjValid: cnpj ? true : false
+    cnpj, cnpjValid: !!cnpj
   }
+}
+
+/** Constrói lista de problemas encontrados num alvo */
+function collectIssues(hints: Hints): string[] {
+  const issues: string[] = []
+  if (!hints.cnpj) issues.push("CNPJ indisponível")
+  if (hints.cnpj && !hints.cnpjValid) issues.push("CNPJ inválido")
+  if (!hints.hasPrivacy) issues.push("Política de privacidade ausente")
+  if (!hints.hasContact) issues.push("Informações de contato ausentes")
+  if (hints.mentionsPix) issues.push("Menções a PIX (potencial cobrança)")
+  if (hints.hasWhatsApp) issues.push("Uso de WhatsApp como canal primário")
+  if (typeof hints.ageDays === "number") {
+    if (hints.ageDays < 60) issues.push(`Domínio recente (${hints.ageDays} dias)`)
+  } else {
+    issues.push("Idade do domínio indisponível")
+  }
+  return issues
+}
+
+/* =========================
+   RDAP GLOBAL (IANA bootstrap) — idade de domínio para qualquer TLD
+   ========================= */
+
+// Cache do bootstrap IANA: TLD -> array de servidores RDAP
+let RDAP_BOOTSTRAP: Record<string, string[]> | null = null
+let RDAP_BOOTSTRAP_FETCHED_AT = 0
+const RDAP_BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+
+async function loadIanaBootstrap(): Promise<Record<string, string[]>> {
+  if (RDAP_BOOTSTRAP && (Date.now() - RDAP_BOOTSTRAP_FETCHED_AT) < RDAP_BOOTSTRAP_TTL_MS) {
+    return RDAP_BOOTSTRAP
+  }
+  try {
+    const resp = await fetch("https://data.iana.org/rdap/dns.json", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" }
+    })
+    if (!resp.ok) throw new Error(`IANA bootstrap error: ${resp.status}`)
+    const data = await resp.json()
+    const map: Record<string, string[]> = {}
+    const services = Array.isArray(data?.services) ? data.services : []
+    for (const svc of services) {
+      const tlds = Array.isArray(svc?.[0]) ? svc[0] : []
+      const servers = Array.isArray(svc?.[1]) ? svc[1] : []
+      for (const tld of tlds) {
+        map[tld.toLowerCase()] = servers
+      }
+    }
+    RDAP_BOOTSTRAP = map
+    RDAP_BOOTSTRAP_FETCHED_AT = Date.now()
+    return map
+  } catch (e) {
+    console.error("[rdap] erro carregando IANA bootstrap:", e)
+    RDAP_BOOTSTRAP = {}
+    RDAP_BOOTSTRAP_FETCHED_AT = Date.now()
+    return RDAP_BOOTSTRAP
+  }
+}
+
+async function rdapServersForTld(tld: string): Promise<string[]> {
+  const bootstrap = await loadIanaBootstrap()
+  return bootstrap[tld.toLowerCase()] || []
+}
+
+/** tenta resolver idade (dias) para um host (subdomínios aceitos) */
+async function fetchDomainAgeDaysGlobal(host: string): Promise<number | null> {
+  host = (host || "").toLowerCase()
+  if (!host.includes(".")) return null
+
+  // candidatos: host, e vamos removendo prefixos até sobrar "nome.tld"
+  const parts = host.split(".")
+  const candidates: string[] = []
+  for (let i = 0; i <= parts.length - 2; i++) {
+    candidates.push(parts.slice(i).join("."))
+  }
+
+  for (const candidate of candidates) {
+    const tld = candidate.split(".").pop() as string
+    if (!tld) continue
+    const servers = await rdapServersForTld(tld)
+    if (!servers.length) continue
+
+    for (const base of servers) {
+      const baseUrl = base.endsWith("/") ? base.slice(0, -1) : base
+      const url = `${baseUrl}/domain/${encodeURIComponent(candidate)}`
+      try {
+        const resp = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" } })
+        if (resp.status === 404) continue
+        if (!resp.ok) continue
+        const json = await resp.json()
+        const events: Array<{ eventAction: string; eventDate: string }> = json?.events || []
+        const reg = events.find(e => e.eventAction === "registration")?.eventDate
+        if (!reg) continue
+        const created = new Date(reg).getTime()
+        if (isNaN(created)) continue
+        const days = Math.max(0, Math.floor((Date.now() - created) / (1000 * 60 * 60 * 24)))
+        return days
+      } catch { continue }
+    }
+  }
+  return null
 }
 
 /* =========================
@@ -112,184 +229,51 @@ function buildReputationHints(url?: string, html?: string) {
 const norm = (d: string) => (d || "").trim().toLowerCase()
 
 export const AUTHORIZED_BET_DOMAINS = new Set<string>([
-  "betano.bet.br",
-  "superbet.bet.br",
-  "magicjackpot.bet.br",
-  "super.bet.br",
-  "reidopitaco.bet.br",
-  "pitaco.bet.br",
-  "rdp.bet.br",
-  "sportingbet.bet.br",
-  "betboo.bet.br",
-  "big.bet.br",
-  "apostar.bet.br",
-  "caesars.bet.br",
-  "betnacional.bet.br",
-  "kto.bet.br",
-  "betsson.bet.br",
-  "galera.bet.br",
-  "f12.bet.br",
-  "luva.bet.br",
-  "brasil.bet.br",
-  "sporty.bet.br",
-  "estrelabet.bet.br",
-  "vupi.bet.br",
-  "reals.bet.br",
-  "ux.bet.br",
-  "bingo.bet.br",
-  "betfair.bet.br",
-  "7games.bet.br",
-  "betao.bet.br",
-  "r7.bet.br",
-  "hiper.bet.br",
-  "novibet.bet.br",
-  "seguro.bet.br",
-  "kingpanda.bet.br",
-  "9f.bet.br",
-  "6r.bet.br",
-  "betapp.bet.br",
-  "ijogo.bet.br",
-  "fogo777.bet.br",
-  "p9.bet.br",
-  "bet365.bet.br",
-  "apostaganha.bet.br",
-  "brazino777.bet.br",
-  "4win.bet.br",
-  "4play.bet.br",
-  "pagol.bet.br",
-  "seu.bet.br",
-  "h2.bet.br",
-  "vbet.bet.br",
-  "vivaro.bet.br",
-  "casadeapostas.bet.br",
-  "betsul.bet.br",
-  "jogoonline.bet.br",
-  "esportesdasorte.bet.br",
-  "ona.bet.br",
-  "lottu.bet.br",
-  "betfast.bet.br",
-  "faz1.bet.br",
-  "tivo.bet.br",
-  "suprema.bet.br",
-  "maxima.bet.br",
-  "ultra.bet.br",
-  "betesporte.bet.br",
-  "lancedesorte.bet.br",
-  "betmgm.bet.br",
-  "mgm.bet.br",
-  "tiger.bet.br",
-  "pq777.bet.br",
-  "5g.bet.br",
-  "bravo.bet.br",
-  "tradicional.bet.br",
-  "apostatudo.bet.br",
-  "sorteonline.bet.br",
-  "lottoland.bet.br",
-  "arenaplus.bet.br",
-  "gameplus.bet.br",
-  "bingoplus.bet.br",
-  "pix.bet.br",
-  "fla.bet.br",
-  "betdasorte.bet.br",
-  "apostou.bet.br",
-  "b1bet.bet.br",
-  "brbet.bet.br",
-  "betgorillas.bet.br",
-  "betbuffalos.bet.br",
-  "betfalcons.bet.br",
-  "bateu.bet.br",
-  "esportiva.bet.br",
-  "betwarrior.bet.br",
-  "sortenabet.bet.br",
-  "betou.bet.br",
-  "betfusion.bet.br",
-  "bandbet.bet.br",
-  "afun.bet.br",
-  "ai.bet.br",
-  "6z.bet.br",
-  "blaze.bet.br",
-  "jonbet.bet.br",
-  "7k.bet.br",
-  "cassino.bet.br",
-  "vera.bet.br",
-  "bau.bet.br",
-  "telesena.bet.br",
-  "milhao.bet.br",
-  "vert.bet.br",
-  "cgg.bet.br",
-  "fanbit.bet.br",
-  "up.bet.br",
-  "9d.bet.br",
-  "wjcasino.bet.br",
-  "kbet.bet.br",
-  "alfa.bet.br",
-  "mmabet.bet.br",
-  "betvip.bet.br",
-  "papigames.bet.br",
-  "bet4.bet.br",
-  "aposta.bet.br",
-  "fazo.bet.br",
-  "esportivavip.bet.br",
-  "cbesportes.bet.br",
-  "donosdabola.bet.br",
-  "br4.bet.br",
-  "goldebet.bet.br",
-  "lotogreen.bet.br",
-  "bolsadeaposta.bet.br",
-  "fulltbet.bet.br",
-  "betbra.bet.br",
-  "pinnacle.bet.br",
-  "matchbook.bet.br",
-  "betespecial.bet.br",
-  "betboom.bet.br",
-  "aposta1.bet.br",
-  "apostamax.bet.br",
-  "aviao.bet.br",
-  "ginga.bet.br",
-  "qg.bet.br",
-  "vivasorte.bet.br",
-  "bacanaplay.bet.br",
-  "playuzu.bet.br",
-  "betcopa.bet.br",
-  "brasildasorte.bet.br",
-  "fybet.bet.br",
-  "multi.bet.br",
-  "rico.bet.br",
-  "brx.bet.br",
-  "stake.bet.br",
-  "betcaixa.bet.br",
-  "megabet.bet.br",
-  "xbetcaixa.bet.br",
-  "jogalimpo.bet.br",
-  "energia.bet.br",
-  "spin.bet.br",
-  "oleybet.bet.br",
-  "betpark.bet.br",
-  "meridianbet.bet.br",
-  "nossa.bet.br",
-  "pin.bet.br",
-  "versus.bet.br",
-  "luck.bet.br",
-  "1pra1.bet.br",
-  "start.bet.br",
-  "esporte365.bet.br",
-  "betaki.bet.br",
-  "jogodeouro.bet.br",
-  "lider.bet.br",
-  "geralbet.bet.br",
-  "b2x.bet.br",
-  "bullsbet.bet.br",
-  "jogao.bet.br",
-  "jogos.bet.br",
-  "betpontobet.bet.br",
-  "donald.bet.br",
-  "1xbet.bet.br",
-  "rivalo.bet.br",
-  "a247.bet.br",
-  "mcgames.bet.br",
-  "mcgamesbet.bet.br",
-  "montecarlos.bet.br",
-  "megaposta.bet.br",
+  "betano.bet.br","superbet.bet.br","magicjackpot.bet.br","super.bet.br",
+  "reidopitaco.bet.br","pitaco.bet.br","rdp.bet.br","sportingbet.bet.br",
+  "betboo.bet.br","big.bet.br","apostar.bet.br","caesars.bet.br",
+  "betnacional.bet.br","kto.bet.br","betsson.bet.br","galera.bet.br",
+  "f12.bet.br","luva.bet.br","brasil.bet.br","sporty.bet.br",
+  "estrelabet.bet.br","vupi.bet.br","reals.bet.br","ux.bet.br",
+  "bingo.bet.br","betfair.bet.br","7games.bet.br","betao.bet.br",
+  "r7.bet.br","hiper.bet.br","novibet.bet.br","seguro.bet.br",
+  "kingpanda.bet.br","9f.bet.br","6r.bet.br","betapp.bet.br",
+  "ijogo.bet.br","fogo777.bet.br","p9.bet.br","bet365.bet.br",
+  "apostaganha.bet.br","brazino777.bet.br","4win.bet.br","4play.bet.br",
+  "pagol.bet.br","seu.bet.br","h2.bet.br","vbet.bet.br","vivaro.bet.br",
+  "casadeapostas.bet.br","betsul.bet.br","jogoonline.bet.br",
+  "esportesdasorte.bet.br","ona.bet.br","lottu.bet.br","betfast.bet.br",
+  "faz1.bet.br","tivo.bet.br","suprema.bet.br","maxima.bet.br",
+  "ultra.bet.br","betesporte.bet.br","lancedesorte.bet.br",
+  "betmgm.bet.br","mgm.bet.br","tiger.bet.br","pq777.bet.br",
+  "5g.bet.br","bravo.bet.br","tradicional.bet.br","apostatudo.bet.br",
+  "sorteonline.bet.br","lottoland.bet.br","arenaplus.bet.br",
+  "gameplus.bet.br","bingoplus.bet.br","pix.bet.br","fla.bet.br",
+  "betdasorte.bet.br","apostou.bet.br","b1bet.bet.br","brbet.bet.br",
+  "betgorillas.bet.br","betbuffalos.bet.br","betfalcons.bet.br",
+  "bateu.bet.br","esportiva.bet.br","betwarrior.bet.br",
+  "sortenabet.bet.br","betou.bet.br","betfusion.bet.br","bandbet.bet.br",
+  "afun.bet.br","ai.bet.br","6z.bet.br","blaze.bet.br","jonbet.bet.br",
+  "7k.bet.br","cassino.bet.br","vera.bet.br","bau.bet.br","telesena.bet.br",
+  "milhao.bet.br","vert.bet.br","cgg.bet.br","fanbit.bet.br","up.bet.br",
+  "9d.bet.br","wjcasino.bet.br","kbet.bet.br","alfa.bet.br","mmabet.bet.br",
+  "betvip.bet.br","papigames.bet.br","bet4.bet.br","aposta.bet.br",
+  "fazo.bet.br","esportivavip.bet.br","cbesportes.bet.br",
+  "donosdabola.bet.br","br4.bet.br","goldebet.bet.br","lotogreen.bet.br",
+  "bolsadeaposta.bet.br","fulltbet.bet.br","betbra.bet.br","pinnacle.bet.br",
+  "matchbook.bet.br","betespecial.bet.br","betboom.bet.br","aposta1.bet.br",
+  "apostamax.bet.br","aviao.bet.br","ginga.bet.br","qg.bet.br",
+  "vivasorte.bet.br","bacanaplay.bet.br","playuzu.bet.br","betcopa.bet.br",
+  "brasildasorte.bet.br","fybet.bet.br","multi.bet.br","rico.bet.br",
+  "brx.bet.br","stake.bet.br","betcaixa.bet.br","megabet.bet.br",
+  "xbetcaixa.bet.br","jogalimpo.bet.br","energia.bet.br","spin.bet.br",
+  "oleybet.bet.br","betpark.bet.br","meridianbet.bet.br","nossa.bet.br",
+  "pin.bet.br","versus.bet.br","luck.bet.br","1pra1.bet.br","start.bet.br",
+  "esporte365.bet.br","betaki.bet.br","jogodeouro.bet.br","lider.bet.br",
+  "geralbet.bet.br","b2x.bet.br","bullsbet.bet.br","jogao.bet.br",
+  "jogos.bet.br","betpontobet.bet.br","donald.bet.br","1xbet.bet.br",
+  "rivalo.bet.br","a247.bet.br","mcgames.bet.br","mcgamesbet.bet.br",
+  "montecarlos.bet.br","megaposta.bet.br",
 ].map(norm))
 
 /** ENV opcional para complementar a allowlist via painel: BET_AUTH_DOMAINS="foo.bet.br,bar.bet.br" */
@@ -446,7 +430,7 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
 
 function buildPrompt(params: {
   message: string
-  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: ReturnType<typeof buildReputationHints> }>
+  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }>
 }) {
   const { message, analyzedTargets } = params
 
@@ -549,7 +533,7 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   }
 
   // Baixar HTML SOMENTE das URLs (não tentamos http/https em domínios nus)
-  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: ReturnType<typeof buildReputationHints> }> = []
+  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }> = []
   for (const targetUrl of urlsFromMessage) {
     try {
       const resp = await fetch(targetUrl, {
@@ -572,15 +556,28 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
     }
   }
 
+  // ===== RDAP: enriquecer hints com idade de domínio (global) =====
+  const analyzedWithAges: Array<{ url: string; htmlSummary: string; hints: Hints }> = []
+  for (const item of analyzedTargets) {
+    const host = getHostname(item.url) || ""
+    const ageDays = host ? await fetchDomainAgeDaysGlobal(host) : null
+    analyzedWithAges.push({ url: item.url, htmlSummary: item.htmlSummary, hints: { ...item.hints, ageDays } })
+  }
+
   try {
     const apiKey = process.env.GEMINI_API_KEY
     let analysisResult: AnalysisResult
 
     if (!apiKey) {
       console.error("[v0] GEMINI_API_KEY not found in environment variables")
+      // fallback de mock
       analysisResult = getMockAnalysis(sanitizedMessage)
     } else {
-      const prompt = buildPrompt({ message: sanitizedMessage, analyzedTargets })
+      const prompt = buildPrompt({
+        message: sanitizedMessage,
+        analyzedTargets: analyzedTargets // prompt não inclui age (para não estourar contexto)
+      })
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
@@ -604,7 +601,7 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
         // Parse "[Classificação]: [Motivo]"
         const [classification, ...reasonParts] = aiResponse.split(":")
-        const reason = reasonParts.join(":").trim()
+        const llmReason = reasonParts.join(":").trim()
 
         let verdict: "seguro" | "cautela" | "golpe" = "cautela"
         const cls = (classification || "").toLowerCase()
@@ -612,9 +609,19 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
         else if (cls.includes("golpe")) verdict = "golpe"
         else verdict = "cautela"
 
+        // ===== Agregar TODOS os problemas por URL =====
+        const perUrlIssues: string[] = []
+        for (const t of analyzedWithAges) {
+          const issues = collectIssues(t.hints)
+          if (issues.length) perUrlIssues.push(`[${t.url}] ${issues.join("; ")}`)
+        }
+
         analysisResult = {
           verdict,
-          reason: reason || "Análise concluída. Verifique as recomendações de segurança."
+          reason:
+            perUrlIssues.length
+              ? (llmReason ? `${llmReason} | ${perUrlIssues.join(" | ")}` : perUrlIssues.join(" | "))
+              : (llmReason || "Análise concluída. Verifique as recomendações de segurança.")
         }
       }
     }
