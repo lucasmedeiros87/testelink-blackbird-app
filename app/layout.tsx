@@ -10,7 +10,7 @@ const montserrat = Montserrat({
 })
 
 export const metadata: Metadata = {
-  title: "Alby Protect - Escaneie Fraudes com IA",
+  title: "Escudo Pro - Escaneie Fraudes com IA",
   description:
     "Detecte fraudes e golpes em mensagens suspeitas usando inteligência artificial. Proteção instantânea contra phishing e scams.",
   generator: "v0.app",
