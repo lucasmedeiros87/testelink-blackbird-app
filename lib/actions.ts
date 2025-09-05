@@ -54,6 +54,164 @@ function summarizeHtml(raw: string, maxLen = 9000) {
   return textish.slice(0, maxLen)
 }
 
+/** Detecta padrões de conteúdo adulto no HTML */
+function detectAdultContentPatterns(html: string, url: string): boolean {
+  const content = html.toLowerCase()
+  const hostname = getHostname(url)?.toLowerCase() || ""
+  
+  // Padrões específicos em JSON/dados estruturados
+  if (/"isAdult"\s*:\s*true/i.test(html)) return true
+  if (/"adult"\s*:\s*true/i.test(html)) return true
+  
+  // Plataformas conhecidas de conteúdo adulto
+  const adultPlatforms = [
+    'onlyfans', 'pornhub', 'xvideos', 'xhamster', 'redtube', 'brazzers', 
+    'chaturbate', 'stripchat', 'cam4', 'livejasmin', 'myfreecams',
+    'fansly', 'justforfans', 'manyvids', 'clips4sale'
+  ]
+  
+  // Verifica se menciona plataformas adultas
+  for (const platform of adultPlatforms) {
+    if (content.includes(platform)) return true
+  }
+  
+  // Hostnames suspeitos
+  const suspiciousHosts = ['link.me', 'linktr.ee', 'allmylinks.com', 'linktree.com']
+  const isSuspiciousHost = suspiciousHosts.some(host => hostname.includes(host))
+  
+  // Em hosts suspeitos, procura por indicadores específicos
+  if (isSuspiciousHost) {
+    const adultKeywords = [
+      'onlyfans', 'adult content', '18+', 'xxx', 'nsfw', 'premium content',
+      'subscription', 'exclusive content', 'cam', 'webcam', 'live show',
+      'sexy', 'nude', 'erotic', 'fetish', 'kink'
+    ]
+    
+    for (const keyword of adultKeywords) {
+      if (content.includes(keyword)) return true
+    }
+  }
+  
+  // Padrões no título/meta
+  if (/<title[^>]*>.*?(porn|adult|sex|xxx|18\+|nude|erotic).*?<\/title>/i.test(html)) return true
+  if (/<meta[^>]*content=["'][^"']*(porn|adult|sex|xxx|18\+|nude|erotic)[^"']*["'][^>]*>/i.test(html)) return true
+  
+  return false
+}
+
+/** Detecta padrões de golpe financeiro/phishing */
+function detectFinancialScamPatterns(html: string, url: string): { isScam: boolean; reason: string } {
+  const content = html.toLowerCase()
+  const hostname = getHostname(url)?.toLowerCase() || ""
+  
+  // Domínios suspeitos para imitação
+  const suspiciousPlatforms = [
+    'vercel.app', 'netlify.app', 'heroku.com', 'github.io', 'firebase.app',
+    'surge.sh', 'now.sh', 'glitch.me', 'replit.dev'
+  ]
+  
+  const isSuspiciousPlatform = suspiciousPlatforms.some(platform => hostname.includes(platform))
+  
+  // Nomes de empresas legítimas sendo imitadas
+  const legitimateCompanies = [
+    'mercado livre', 'mercadolivre', 'nubank', 'itau', 'bradesco', 'santander',
+    'caixa', 'banco do brasil', 'inter', 'picpay', 'paypal', 'pix', 'banco central',
+    'receita federal', 'cpf', 'spc', 'serasa', 'facebook', 'whatsapp', 'instagram'
+  ]
+  
+  // Verifica se imita empresa legítima em plataforma suspeita
+  const imitatesCompany = legitimateCompanies.some(company => content.includes(company))
+  
+  if (isSuspiciousPlatform && imitatesCompany) {
+    return {
+      isScam: true,
+      reason: "Site hospedado em plataforma suspeita imitando empresa legítima"
+    }
+  }
+  
+  // Padrões de checkout/pagamento suspeitos
+  const checkoutScamPatterns = [
+    // Textos típicos de ativação fraudulenta
+    /ativar conta.*r\$\s*\d+/i,
+    /ativa[çc][aã]o.*pix/i,
+    /limite.*dispon[ií]vel/i,
+    /saldo.*conta/i,
+    
+    // UUIDs em URLs (padrão comum em golpes)
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    
+    // Valores baixos para "ativação"
+    /ativa[çc][aã]o.*r\$\s*[1-9][0-9]?,00/i,
+    /taxa.*ativa[çc][aã]o.*r\$\s*[1-9][0-9]?,00/i,
+    
+    // Novos padrões de golpes PIX
+    /agiliza.*pag/i,
+    /pague.*agora.*pix/i,
+    /confirme.*dados.*pix/i,
+    /finalize.*pagamento/i
+  ]
+  
+  // Verifica se é domínio de pagamento suspeito
+  const paymentScamDomains = [
+    'agilizapag.site',
+    'rapidopag.site', 
+    'instantpag.site',
+    'quickpag.site'
+  ]
+  
+  const isPaymentScamDomain = paymentScamDomains.some(domain => hostname.includes(domain))
+  
+  if (isPaymentScamDomain) {
+    return {
+      isScam: true,
+      reason: "Site de pagamento falso se passando por empresa legítima"
+    }
+  }
+  
+  for (const pattern of checkoutScamPatterns) {
+    if (pattern.test(content)) {
+      return {
+        isScam: true,
+        reason: "Padrão típico de golpe de ativação de conta"
+      }
+    }
+  }
+  
+  // Depoimentos falsos (muitas estrelas + linguagem específica)
+  const fakeTestimonialPatterns = [
+    /★{4,5}.*j[aá]\s+mandei.*fam[ií]lia/i,
+    /★{4,5}.*certinho.*funcionando/i,
+    /★{4,5}.*salvou.*contas.*m[eê]s/i,
+    /★{4,5}.*TOP.*limite/i
+  ]
+  
+  for (const pattern of fakeTestimonialPatterns) {
+    if (pattern.test(content)) {
+      return {
+        isScam: true,
+        reason: "Depoimentos suspeitos com linguagem típica de golpe"
+      }
+    }
+  }
+  
+  // URLs de sucesso suspeitas
+  const successUrlPattern = /"successPage":"([^"]*)/i
+  const successMatch = successUrlPattern.exec(html)
+  if (successMatch) {
+    const successUrl = successMatch[1].toLowerCase()
+    if (successUrl.includes('minha-conta.online') || 
+        successUrl.includes('up2') ||
+        suspiciousPlatforms.some(platform => successUrl.includes(platform))) {
+      return {
+        isScam: true,
+        reason: "URL de redirecionamento suspeita após pagamento"
+      }
+    }
+  }
+  
+  return { isScam: false, reason: "" }
+}
+
 /** Valida CNPJ (14 dígitos) */
 function validateCNPJ(cnpjRaw: string): boolean {
   const cnpj = (cnpjRaw || "").replace(/\D/g, "")
@@ -123,17 +281,12 @@ function buildReputationHints(url?: string, html?: string): Omit<Hints, "ageDays
 /** Constrói lista de problemas em linguagem popular para um alvo */
 function collectIssues(hints: Hints): string[] {
   const issues: string[] = []
-  if (!hints.cnpj) issues.push("não informa CNPJ")
-  if (hints.cnpj && !hints.cnpjValid) issues.push("CNPJ parece inválido")
-  if (!hints.hasPrivacy) issues.push("não tem política de privacidade")
-  if (!hints.hasContact) issues.push("não mostra como falar com a empresa")
-  if (hints.mentionsPix) issues.push("fala de PIX (pode ser cobrança)")
-  if (hints.hasWhatsApp) issues.push("pede contato só por WhatsApp")
+  
+  // Apenas idade do domínio (indicador importante de sites suspeitos)
   if (typeof hints.ageDays === "number") {
-    if (hints.ageDays < 60) issues.push(`site muito novo (só ${hints.ageDays} dias no ar)`)
-  } else {
-    issues.push("não deu pra saber há quanto tempo o site existe")
+    if (hints.ageDays < 30) issues.push(`site muito novo (só ${hints.ageDays} dias)`)
   }
+  
   return issues
 }
 
@@ -218,10 +371,47 @@ async function fetchDomainAgeDaysGlobal(host: string): Promise<number | null> {
 }
 
 /* =========================
-   Allowlist de apostas (CONST + ENV)
+   Allowlist de apostas (CONST + ENV) + Sites de alta confiança
    ========================= */
 
 const norm = (d: string) => (d || "").trim().toLowerCase()
+
+// Sites de alta confiança e relevância mundial
+const TRUSTED_DOMAINS = new Set<string>([
+  // Tech Giants
+  "google.com", "microsoft.com", "apple.com", "amazon.com", "meta.com", "facebook.com",
+  "instagram.com", "youtube.com", "twitter.com", "x.com", "linkedin.com", "github.com",
+  "stackoverflow.com", "reddit.com", "wikipedia.org", "openai.com", "adobe.com",
+  
+  // Bancos e Instituições Financeiras BR
+  "bb.com.br", "caixa.gov.br", "bradesco.com.br", "itau.com.br", "santander.com.br",
+  "bancointer.com.br", "nubank.com.br", "btgpactual.com", "original.com.br",
+  "sicoob.com.br", "sicredi.com.br", "c6bank.com.br", "next.me", "99pay.com.br",
+  "picpay.com", "mercadopago.com.br", "pagseguro.uol.com.br", "paypal.com",
+  
+  // E-commerce BR
+  "mercadolivre.com.br", "americanas.com.br", "magazineluiza.com.br", "casasbahia.com.br",
+  "extra.com.br", "pontofrio.com.br", "shoptime.com.br", "submarino.com.br",
+  "amazon.com.br", "netshoes.com.br", "dafiti.com.br", "enjoei.com.br",
+  
+  // Governo BR
+  "gov.br", "receita.fazenda.gov.br", "caixa.gov.br", "inss.gov.br", "tse.jus.br",
+  "stf.jus.br", "planalto.gov.br", "bcb.gov.br", "susep.gov.br", "cvm.gov.br",
+  
+  // Mídia e Notícias BR
+  "globo.com", "uol.com.br", "folha.uol.com.br", "estadao.com.br", "terra.com.br",
+  "r7.com", "record.com.br", "sbt.com.br", "band.com.br", "cnn.com.br",
+  "bbc.com", "reuters.com", "bloomberg.com",
+  
+  // Educação e Pesquisa
+  "edu.br", "usp.br", "unicamp.br", "ufrj.br", "puc-rio.br", "fgv.br",
+  "mit.edu", "harvard.edu", "stanford.edu", "coursera.org", "edx.org",
+  
+  // Serviços Populares
+  "whatsapp.com", "telegram.org", "discord.com", "zoom.us", "skype.com",
+  "dropbox.com", "onedrive.com", "icloud.com", "netflix.com", "spotify.com",
+  "globoplay.globo.com", "primevideo.com", "disney.com.br"
+].map(norm))
 
 // NÃO exportar este Set
 const AUTHORIZED_BET_DOMAINS = new Set<string>([
@@ -292,6 +482,47 @@ function isHostAuthorizedBySet(host: string, set: Set<string>): boolean {
   return false
 }
 
+/** Verifica se um domínio é de alta confiança */
+function isTrustedDomain(host: string): boolean {
+  return isHostAuthorizedBySet(host, TRUSTED_DOMAINS)
+}
+
+/** Verifica se um domínio tem indicadores de legitimidade */
+function hasLegitimacyIndicators(host: string, html?: string): boolean {
+  const hostname = host.toLowerCase()
+  const content = (html || "").toLowerCase()
+  
+  // TLDs educacionais e governamentais
+  const educationalTLDs = ['.edu', '.edu.br', '.academy', '.university', '.school']
+  const governmentTLDs = ['.gov', '.gov.br', '.org', '.org.br']
+  const legitimateTLDs = [...educationalTLDs, ...governmentTLDs]
+  
+  const hasLegitimeTLD = legitimateTLDs.some(tld => hostname.endsWith(tld))
+  
+  // Palavras-chave de sites educacionais
+  const educationalKeywords = [
+    'curso', 'cursos', 'academy', 'school', 'university', 'education',
+    'learning', 'aula', 'aulas', 'ensino', 'formação', 'certificado',
+    'diploma', 'faculdade', 'universidade', 'colégio', 'instituto'
+  ]
+  
+  const hasEducationalContent = educationalKeywords.some(keyword => 
+    hostname.includes(keyword) || content.includes(keyword)
+  )
+  
+  // Sites com aparência profissional
+  const professionalIndicators = [
+    'sobre', 'about', 'contact', 'contato', 'team', 'equipe',
+    'privacy', 'privacidade', 'terms', 'termos', 'policy', 'política'
+  ]
+  
+  const hasProfessionalStructure = professionalIndicators.some(indicator => 
+    content.includes(indicator)
+  )
+  
+  return hasLegitimeTLD || (hasEducationalContent && hasProfessionalStructure)
+}
+
 /* =========================
    Heurística rápida (bloqueio imediato com allowlist)
    ========================= */
@@ -317,12 +548,164 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
     else hosts.push(norm(token))
   }
 
+  // ⭐ PRIMEIRA PRIORIDADE: Detecção de sites de apostas (ANTES de tudo)
+  const betPatterns = [
+    /bet/i,           // qualquer ocorrência de "bet"
+    /\bcasino\b/i,
+    /\bslots?\b/i,
+    /\bapost[ao]/i,
+    /\bjogo[s]?\b/i,
+    /\b(777|888|999)\b/i,
+    /\bgame[s]?\b/i,
+    /(tiger|fortune|lucky|royal|premium|mega|ultra|zafir)/i, // nomes comuns de cassinos
+    /\d+[a-z]+\d+\.(vip|top|site|fun|win|xyz|cc|online)/i,   // padrões suspeitos como 5rr88.vip
+    /[a-z]*\d{2,}[a-z]*\.(vip|top|site|fun|win|xyz|cc)/i,    // números com TLDs suspeitos
+    /vip\.\d+\w*game/i,                                       // vip.4484game padrão
+    /\d+game\.(com|net|org|vip|top)/i,                       // 4484game.com padrão
+    /(vip|premium|gold|diamond)\.\w*game/i                    // subdomínios suspeitos + game
+  ]
+  
+  // Verifica se é site de apostas (por domínio ou conteúdo)
+  const isBettingSite = hosts.some(h => 
+    betPatterns.some(pattern => pattern.test(h)) ||
+    h.includes('bet') || 
+    h.includes('casino') || 
+    h.includes('jogo') ||
+    h.includes('aposta')
+  ) || betPatterns.some(pattern => pattern.test(txt))
+  
+  // Se for site de apostas, verifica se está na allowlist
+  if (isBettingSite) {
+    const allow = loadAuthorizedBetDomainsLocal()
+    const anyAuthorized = hosts.some(h => isHostAuthorizedBySet(h, allow))
+    if (!anyAuthorized) {
+      return { 
+        verdict: "golpe", 
+        reason: "Site de apostas não autorizado no Brasil. Use apenas casas de apostas licenciadas." 
+      }
+    }
+    // Se está autorizado, continua o fluxo normal
+  }
+
+  // ⭐ SEGUNDA PRIORIDADE: Detecção de IPTV pirata e streaming ilegal
+  const iptvPiratePatterns = [
+    /(iptv|streaming).*(pirat|ilegal|gratis|free)/i,
+    /(top|best|mega|super)streaming/i,
+    /streaming.*(oficial|premium|vip|gold)/i,
+    /\b(iptv|streaming)\b.*\.(online|site|top|vip|fun)/i,
+    /(tv|canal|channel).*(pirat|gratis|free|hack)/i,
+    /(netflix|amazon|disney|hbo).*(gratis|free|crack)/i
+  ]
+
+  const isIPTVPirate = hosts.some(h => 
+    iptvPiratePatterns.some(pattern => pattern.test(h))
+  ) || iptvPiratePatterns.some(pattern => pattern.test(txt))
+
+  if (isIPTVPirate) {
+    return { 
+      verdict: "golpe", 
+      reason: "Site de streaming/IPTV pirata. Conteúdo protegido por direitos autorais distribuído ilegalmente." 
+    }
+  }
+
+  // Verificação de domínios de alta confiança - retorna seguro imediatamente
+  const hasTrustedDomain = hosts.some(h => isTrustedDomain(h))
+  if (hasTrustedDomain && !hasGambling && !hasLoan && !hasPorn) {
+    return { verdict: "seguro", reason: "Link para site de alta confiança e reconhecimento mundial." }
+  }
+
+  // Verificação avançada de conteúdo adulto e golpes financeiros via HTML
+  for (const token of urlsOrDomains) {
+    if (token.startsWith('http')) {
+      try {
+        const resp = await fetch(token, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" },
+          redirect: "follow"
+        })
+        if (resp.ok) {
+          const ctype = resp.headers.get("content-type") || ""
+          const isHtml = ctype.includes("text/html")
+          if (isHtml) {
+            const htmlContent = await resp.text()
+            
+            // Verifica conteúdo adulto
+            if (detectAdultContentPatterns(htmlContent, token)) {
+              return { verdict: "golpe", reason: "Link leva para conteúdo adulto ou plataforma de conteúdo +18." }
+            }
+            
+            // Verifica golpes financeiros/phishing
+            const scamCheck = detectFinancialScamPatterns(htmlContent, token)
+            if (scamCheck.isScam) {
+              return { verdict: "golpe", reason: scamCheck.reason }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[fastHeuristic] Error checking content:", e)
+      }
+    }
+  }
+
+  // TERCEIRA PRIORIDADE: Detecção de golpes de ativação de conta
+  const activationScamPatterns = [
+    /ativ[ao]r?.{0,20}conta/i,
+    /confirma[rç].{0,20}conta/i,
+    /verifica[rç].{0,20}conta/i,
+    /validar.{0,20}conta/i,
+    /reativar.{0,20}conta/i,
+    /desbloqu\w+.{0,20}conta/i,
+    /sua.conta.foi.{0,20}(suspensa|bloqueada|desativada)/i,
+    /conta.{0,20}(suspensa|bloqueada|desativada|pendente)/i,
+    /click.{0,10}aqui.{0,10}(ativar|confirmar|verificar)/i,
+    /urgente.{0,20}ativ/i
+  ]
+
+  const hasActivationScam = activationScamPatterns.some(pattern => pattern.test(txt))
+  
+  if (hasActivationScam) {
+    // Verifica se não é de domínio confiável
+    const isTrustedDomain = hosts.some(h => TRUSTED_DOMAINS.has(h))
+    if (!isTrustedDomain) {
+      return { 
+        verdict: "golpe", 
+        reason: "Golpe de ativação/verificação de conta. Sites legítimos não pedem ativação por links suspeitos." 
+      }
+    }
+  }
+
+  // Detecção de golpes de pagamento PIX/financeiros
+  for (const token of urlsOrDomains) {
+    if (token.startsWith('http')) {
+      const url = new URL(token)
+      
+      // Padrões suspeitos em URLs de pagamento
+      const paymentScamPatterns = [
+        /\/pix\/[A-Za-z0-9]+\?/i,
+        /pay\.[a-z]+\.(site|online|top|xyz)/i,
+        /pag\.[a-z]+\.(site|online|top|xyz)/i,
+        /(agiliza|rapido|instant|quick)pag/i,
+        /[?&](name|document|email|telephone)=/i
+      ]
+      
+      const isPaymentScam = paymentScamPatterns.some(pattern => 
+        pattern.test(token) || pattern.test(url.hostname)
+      )
+      
+      if (isPaymentScam && !isTrustedDomain(url.hostname)) {
+        return { 
+          verdict: "golpe", 
+          reason: "Link suspeito de pagamento PIX se passando por empresa legítima." 
+        }
+      }
+    }
+  }
+
   const badTLDs = [".site", ".online", ".shop", ".xyz", ".cc", ".top"]
   const hasBadDomain = hosts.some(h =>
     badTLDs.some(tld => h.endsWith(tld)) || gamblingHints.test(h) || loanHints.test(h) || pornHints.test(h)
   )
 
-  // Pornografia: bloqueio direto
+  // Pornografia: bloqueio direto (padrões básicos)
   if (hasPorn || (hasBadDomain && hosts.some(h => pornHints.test(h)))) {
     return { verdict: "golpe", reason: "O link leva para conteúdo adulto em site suspeito." }
   }
@@ -347,27 +730,153 @@ async function fastHeuristicCheckAsync(message: string, urlsOrDomains: string[])
 }
 
 /* =========================
+   Verificação de reputação do site via Gemini
+   ========================= */
+
+async function checkSiteLegitimacy(domain: string): Promise<{ isLegitimate: boolean; description: string }> {
+  try {
+    console.log(`[legitimacy] Starting check for: ${domain}`)
+    console.log(`[legitimacy] API Key available: ${process.env.GEMINI_API_KEY ? 'YES' : 'NO'}`)
+    
+    const prompt = `Analise o site ${domain} e determine se é legítimo. 
+
+Retorne APENAS um JSON no formato exato:
+
+{"isLegitimate": true, "description": "Descrição da empresa/plataforma"}
+
+OU
+
+{"isLegitimate": false, "description": "Site desconhecido sem informações sobre legitimidade"}
+
+Exemplos de sites legítimos:
+- Google, Microsoft, Apple, Amazon → empresas de tecnologia mundialmente reconhecidas
+- Bancos brasileiros (Itaú, Bradesco, Nubank) → instituições financeiras estabelecidas  
+- GitHub, Stack Overflow, Wikipedia → plataformas conhecidas na comunidade tech
+- Sites .gov.br → órgãos governamentais
+- ew.academy → plataforma educacional brasileira de cursos de tecnologia
+- Universidades e instituições de ensino conhecidas
+- Grandes empresas brasileiras (Globo, UOL, Terra)
+- E-commerce estabelecidos (Mercado Livre, Magazine Luiza)
+
+Critérios para isLegitimate: true:
+- Empresa ou plataforma mundialmente conhecida
+- Instituição brasileira estabelecida e reconhecida
+- Site governamental ou educacional oficial
+- Marca conhecida no mercado brasileiro ou internacional
+- Plataforma de tecnologia respeitada
+
+Critérios para isLegitimate: false:
+- Site completamente desconhecido
+- Nunca ouviu falar da empresa/plataforma
+- Domínio suspeito ou sem reputação conhecida
+
+IMPORTANTE: Responda APENAS o JSON, sem texto adicional.`
+
+    console.log(`[legitimacy] Prompt for ${domain}:`, prompt.substring(0, 200) + "...")
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, topP: 0.8, candidateCount: 1 }
+        })
+      }
+    )
+
+    console.log(`[legitimacy] API Response status for ${domain}: ${response.status}`)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[legitimacy] API request failed for ${domain}: ${response.status}`)
+      console.error(`[legitimacy] Error details:`, errorText)
+      return { isLegitimate: false, description: "Erro na verificação de legitimidade" }
+    }
+
+    const data = await response.json()
+    const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ""
+    
+    console.log(`[legitimacy] Raw response for ${domain}:`, aiResponse)
+    console.log(`[legitimacy] Full API response data for ${domain}:`, JSON.stringify(data, null, 2))
+
+    try {
+      // Remove markdown code blocks se houver
+      let cleanResponse = aiResponse.trim()
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/```json\n?/, '').replace(/\n?```$/, '')
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/```\n?/, '').replace(/\n?```$/, '')
+      }
+      
+      console.log(`[legitimacy] Cleaned response for ${domain}:`, cleanResponse)
+      
+      // Tenta fazer parse do JSON
+      const jsonResponse = JSON.parse(cleanResponse)
+      
+      if (typeof jsonResponse.isLegitimate === 'boolean' && typeof jsonResponse.description === 'string') {
+        console.log(`[legitimacy] Parsed JSON for ${domain}:`, jsonResponse)
+        return {
+          isLegitimate: jsonResponse.isLegitimate,
+          description: jsonResponse.description
+        }
+      } else {
+        console.error(`[legitimacy] Invalid JSON structure for ${domain}:`, jsonResponse)
+        return { isLegitimate: false, description: "Erro no formato da resposta" }
+      }
+    } catch (parseError) {
+      console.error(`[legitimacy] JSON parse error for ${domain}:`, parseError, 'Raw response:', aiResponse)
+      
+      // Fallback mais inteligente: analisa se mencionou como legítimo/conhecido
+      const lowerResponse = aiResponse.toLowerCase()
+      if (lowerResponse.includes('"islegitimate": true') ||
+          lowerResponse.includes('"islegitimate":true') ||
+          lowerResponse.includes('plataforma educacional') ||
+          lowerResponse.includes('cursos de tecnologia') ||
+          lowerResponse.includes('empresa de tecnologia') ||
+          lowerResponse.includes('mundialmente reconhecida') ||
+          lowerResponse.includes('instituição estabelecida') ||
+          (lowerResponse.includes('legítim') && !lowerResponse.includes('false')) ||
+          (lowerResponse.includes('conhecid') && !lowerResponse.includes('desconhecido'))) {
+        console.log(`[legitimacy] Using positive fallback interpretation for ${domain}`)
+        return { 
+          isLegitimate: true, 
+          description: "Site reconhecido como legítimo" 
+        }
+      }
+      
+      return { isLegitimate: false, description: "Site não foi reconhecido como conhecido" }
+    }
+  } catch (error) {
+    console.error(`[legitimacy] Error checking ${domain}:`, error)
+    return { isLegitimate: false, description: "Erro na verificação de legitimidade" }
+  }
+}
+
+/* =========================
    Prompt (passando resumo da allowlist)
    ========================= */
 
 function buildPrompt(params: {
   message: string
-  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }>
+  analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays">; legitimacy?: { isLegitimate: boolean; description: string } }>
 }) {
   const { message, analyzedTargets } = params
 
   const targetsBlock = analyzedTargets.length
     ? analyzedTargets.map((t, i) => {
         const h = t.hints
+        const legitimacyInfo = t.legitimacy 
+          ? `LEGITIMIDADE: ${t.legitimacy.isLegitimate ? 'LEGÍTIMO' : 'DESCONHECIDO'} - ${t.legitimacy.description}`
+          : "LEGITIMIDADE: não verificada"
+        
+        console.log(`[v0] Building prompt for ${t.url} - Legitimacy:`, t.legitimacy)
+        
         return `--- ALVO ${i + 1} ---
 URL: ${t.url}
 TLD: ${h.tld || "—"} | HTTPS: ${h.isHttps ? "sim" : "não"}
-SINAIS:
-- CNPJ: ${h.cnpj ? h.cnpj : "indisponível"} (válido: ${h.cnpjValid ? "sim" : "não"})
-- Política de Privacidade: ${h.hasPrivacy ? "sim" : "não"}
-- Contato oficial: ${h.hasContact ? "sim" : "não"}
-- Menções a PIX: ${h.mentionsPix ? "sim" : "não"}
-- Links WhatsApp: ${h.hasWhatsApp ? "sim" : "não"}
+${legitimacyInfo}
 
 HTML_RESUMO:
 ${t.htmlSummary || "indisponível"}`
@@ -379,42 +888,41 @@ ${t.htmlSummary || "indisponível"}`
   const allowExamples = allow.slice(0, 40).join(", ")
   const allowNote = `ALLOWLIST_APOSTAS: total=${allow.length}; exemplos: ${allowExamples}`
 
-  return `Você é um analisador antifraude no Brasil. Analise SOMENTE o que foi fornecido.
+  // Passa exemplos de domínios de alta confiança
+  const trusted = Array.from(TRUSTED_DOMAINS)
+  const trustedExamples = trusted.slice(0, 30).join(", ")
+  const trustedNote = `SITES_ALTA_CONFIANÇA: total=${trusted.length}; exemplos: ${trustedExamples}`
 
-Entrada:
-- Texto do usuário.
-- URLs/domínios citados.
-- Sinais já coletados: TLD/HTTPS, CNPJ (válido/indisponível), Política/Contato, menções a PIX/WhatsApp.
-- ${allowNote}
+  return `Você é um analisador antifraude no Brasil. Analise as informações fornecidas para classificar o link.
 
-Critérios:
-- "Golpe detectado" quando houver ≥2 sinais fortes negativos OU 1 fortíssimo:
-  • Não tem CNPJ/empresa e pede dados sensíveis/urgência
-  • Pede CPF/senha/token/seed/cartão sem ser serviço oficial
-  • Linguagem de urgência/ameaça + link suspeito
-- "Seguro" quando:
-  • Aparência institucional; CNPJ válido; políticas/contatos claros
-  • Não pede dados suspeitos
-- "Cautela" quando:
-  • Sinais fracos/ambíguos (só HTTPS/TLD)
-  • Não informa CNPJ; pouca transparência
-  • Link expirado/sem contexto
+FOQUE APENAS NOS CRITÉRIOS ESSENCIAIS:
 
-Regras extras:
-- APOSTAS: se o domínio NÃO estiver na allowlist (exemplos acima, e validação feita fora do seu texto) → classifique como "Golpe detectado".
-- EMPRÉSTIMOS/CRÉDITO RÁPIDO: em domínio novo/suspeito e sem CNPJ → "Golpe detectado".
-- PORNOGRAFIA: em domínio suspeito/encurtador → "Golpe detectado".
+**SEGURO** quando:
+- Site verificado como LEGÍTIMO na verificação de reputação
+- Site de ALTA CONFIANÇA (Google, Microsoft, Apple, Amazon, bancos grandes, gov.br)
+- Empresa conhecida com boa reputação
 
-⚠️ IMPORTANTE:
-- SSL/HTTPS é só um sinal fraco.
-- Na dúvida, use "Cautela".
-- Não invente dados externos.
+**GOLPE DETECTADO** quando:
+- APOSTAS: Qualquer site com "bet", "casino", "apostas", "jogos" que NÃO esteja na allowlist
+- CONTEÚDO ADULTO: OnlyFans, pornografia, webcam, sites +18
+- ATIVAÇÃO DE CONTA: "Ativar conta", "confirmar conta", "conta suspensa" em sites não confiáveis
+- GOLPES DE PAGAMENTO PIX: Links suspeitos se passando por empresas (agilizapag.site, etc)
+- Sites claramente fraudulentos ou maliciosos
+- Imitação de empresas conhecidas em domínios falsos
 
-Responda APENAS neste formato (sem variações):
-[Classificação]: [Motivo curto e popular em português brasileiro]
+**CAUTELA** quando:
+- Site DESCONHECIDO na verificação de legitimidade
+- Site muito novo (menos de 30 dias)
+- Falta de informações sobre legitimidade
 
-Exemplo:
-Golpe detectado: Site de apostas fora da lista permitida no Brasil.
+⚠️ REGRA PRINCIPAL:
+- Se LEGITIMIDADE = "LEGÍTIMO" → SEMPRE classificar como "Seguro"
+- Se LEGITIMIDADE = "DESCONHECIDO" → classificar como "Cautela"  
+- APOSTAS: Se é site de apostas E não está na allowlist → "Golpe detectado"
+- Conteúdo adulto → "Golpe detectado"
+
+Responda APENAS no formato:
+[Classificação]: [Motivo curto em português brasileiro]
 
 [DADOS DA MENSAGEM]
 ${message || "indisponível"}
@@ -436,32 +944,73 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
 
   const sanitizedMessage = (message || "").replace(/<[^>]*>/g, "").trim()
 
+  // Função para salvar no Supabase com proteção contra duplicatas
+  const saveToSupabase = async (result: AnalysisResult) => {
+    try {
+      const supabase = await createClient()
+      
+      // Verifica se já existe um registro recente com os mesmos dados (últimos 40 segundos)
+      const fortySecondsAgo = new Date(Date.now() - 40 * 1000).toISOString()
+      const { data: existing } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("email", email)
+        .eq("message", sanitizedMessage)
+        .eq("page_url", pageUrl)
+        .gte("created_at", fortySecondsAgo)
+        .limit(1)
+
+      if (existing && existing.length > 0) {
+        console.log("[v0] Duplicate entry prevented - recent submission found (40s window)")
+        return
+      }
+
+      // Insere novo registro
+      const { error: insertError } = await supabase.from("leads").insert({
+        email,
+        phone,
+        page_url: pageUrl,
+        message: sanitizedMessage,
+        analysis_result: result
+      })
+      
+      if (insertError) {
+        console.error("[v0] Error saving to Supabase:", insertError)
+      } else {
+        console.log("[v0] Lead saved successfully to Supabase:", {
+          email,
+          phone,
+          pageUrl,
+          verdict: result.verdict,
+          timestamp: new Date().toISOString()
+        })
+      }
+    } catch (e) {
+      console.error("[v0] Supabase error:", e)
+    }
+  }
+
   // URLs + domínios nus
   const urlsFromMessage = extractUrlsFromText(sanitizedMessage, 2)
   const bareDomains = extractBareDomains(sanitizedMessage, 3)
   const tokensForHeuristic = [...urlsFromMessage, ...bareDomains]
 
+  console.log(`[v0] Extracted URLs from message:`, urlsFromMessage)
+  console.log(`[v0] Extracted bare domains:`, bareDomains)
+  console.log(`[v0] All tokens for analysis:`, tokensForHeuristic)
+
   // Heurística imediata
   const heuristicVerdict = await fastHeuristicCheckAsync(sanitizedMessage, tokensForHeuristic)
   if (heuristicVerdict) {
-    try {
-      const supabase = await createClient()
-      await supabase.from("leads").insert({
-        email,
-        phone,
-        page_url: pageUrl,
-        message: sanitizedMessage,
-        analysis_result: heuristicVerdict
-      })
-    } catch (e) {
-      console.error("[v0] Supabase error (heuristic):", e)
-    }
+    await saveToSupabase(heuristicVerdict)
     return heuristicVerdict
   }
 
   // Baixa HTML só das URLs
-  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays"> }> = []
+  console.log(`[v0] Starting analysis of ${urlsFromMessage.length} URLs`)
+  const analyzedTargets: Array<{ url: string; htmlSummary: string; hints: Omit<Hints,"ageDays">; legitimacy?: { isLegitimate: boolean; description: string } }> = []
   for (const targetUrl of urlsFromMessage) {
+    console.log(`[v0] Processing URL: ${targetUrl}`)
     try {
       const resp = await fetch(targetUrl, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; EscudoProBot/1.0)" },
@@ -473,13 +1022,50 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
         const rawHtml = isHtml ? await resp.text() : ""
         const htmlSummary = rawHtml ? summarizeHtml(rawHtml) : ""
         const hints = buildReputationHints(targetUrl, htmlSummary)
-        analyzedTargets.push({ url: targetUrl, htmlSummary, hints })
+        
+        // Verificação de legitimidade dinâmica
+        const domain = getHostname(targetUrl) || ""
+        console.log(`[v0] Checking legitimacy for domain: ${domain}`)
+        const legitimacy = domain ? await checkSiteLegitimacy(domain) : undefined
+        console.log(`[v0] Legitimacy result for ${domain}:`, legitimacy)
+        
+        analyzedTargets.push({ url: targetUrl, htmlSummary, hints, legitimacy })
       } else {
-        analyzedTargets.push({ url: targetUrl, htmlSummary: "", hints: buildReputationHints(targetUrl, "") })
+        const hints = buildReputationHints(targetUrl, "")
+        const domain = getHostname(targetUrl) || ""
+        console.log(`[v0] Checking legitimacy for domain (no HTML): ${domain}`)
+        const legitimacy = domain ? await checkSiteLegitimacy(domain) : undefined
+        console.log(`[v0] Legitimacy result for ${domain}:`, legitimacy)
+        analyzedTargets.push({ url: targetUrl, htmlSummary: "", hints, legitimacy })
       }
     } catch (e) {
       console.error("[v0] fetch target HTML error:", targetUrl, e)
-      analyzedTargets.push({ url: targetUrl, htmlSummary: "", hints: buildReputationHints(targetUrl, "") })
+      const hints = buildReputationHints(targetUrl, "")
+      const domain = getHostname(targetUrl) || ""
+      console.log(`[v0] Checking legitimacy for domain (error case): ${domain}`)
+      const legitimacy = domain ? await checkSiteLegitimacy(domain) : undefined
+      console.log(`[v0] Legitimacy result for ${domain}:`, legitimacy)
+      analyzedTargets.push({ url: targetUrl, htmlSummary: "", hints, legitimacy })
+    }
+  }
+
+  // Adiciona domínios nus para verificação de legitimidade
+  console.log(`[v0] Adding ${bareDomains.length} bare domains for analysis`)
+  for (const bareDomain of bareDomains) {
+    // Só adiciona se não foi processado como URL
+    const alreadyProcessed = analyzedTargets.some(t => getHostname(t.url) === bareDomain)
+    if (!alreadyProcessed) {
+      console.log(`[v0] Processing bare domain: ${bareDomain}`)
+      const hints = buildReputationHints(`https://${bareDomain}`, "")
+      console.log(`[v0] Checking legitimacy for bare domain: ${bareDomain}`)
+      const legitimacy = await checkSiteLegitimacy(bareDomain)
+      console.log(`[v0] Legitimacy result for bare domain ${bareDomain}:`, legitimacy)
+      analyzedTargets.push({ 
+        url: `https://${bareDomain}`, 
+        htmlSummary: "", 
+        hints, 
+        legitimacy 
+      })
     }
   }
 
@@ -494,12 +1080,18 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
   try {
     const apiKey = process.env.GEMINI_API_KEY
     let analysisResult: AnalysisResult
-
+    
     if (!apiKey) {
       console.error("[v0] GEMINI_API_KEY not found in environment variables")
-      analysisResult = getMockAnalysis(sanitizedMessage)
+      analysisResult = {
+        verdict: "cautela",
+        reason: "Erro na configuração do sistema de análise. Entre em contato com o suporte."
+      }
     } else {
       const prompt = buildPrompt({ message: sanitizedMessage, analyzedTargets })
+      
+      console.log("[v0] Sending prompt to Gemini:", prompt.substring(0, 500) + "...")
+      
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
@@ -516,101 +1108,72 @@ export async function analyzeMessage(formData: FormData): Promise<AnalysisResult
         console.error(`[v0] API request failed: ${response.status} ${response.statusText}`)
         const errorText = await response.text()
         console.error(`[v0] API error response:`, errorText)
-        analysisResult = getMockAnalysis(sanitizedMessage)
+        analysisResult = {
+          verdict: "cautela",
+          reason: "Erro temporário na análise. Tente novamente em alguns minutos."
+        }
       } else {
         const data = await response.json()
         const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ""
 
-        // Parse "[Classificação]: [Motivo]"
-        const [classification, ...reasonParts] = aiResponse.split(":")
-        const llmReasonRaw = reasonParts.join(":").trim()
+        console.log("[v0] Gemini full response data:", JSON.stringify(data, null, 2))
+        console.log("[v0] Gemini extracted response:", aiResponse)
 
-        // Normaliza motivo do LLM para linguagem popular (garantir simplicidade)
-        const llmReason = llmReasonRaw
-          .replace(/CNPJ indispon[ií]vel/gi, "não informa CNPJ")
-          .replace(/pol[ií]tica de privacidade ausente/gi, "não tem política de privacidade")
-          .replace(/informa[cç][oõ]es de contato ausentes/gi, "não mostra como falar com a empresa")
-          .replace(/dom[ií]nio recente/gi, "site muito novo")
-          .replace(/conte[úu]do adulto/gi, "conteúdo adulto")
-          .replace(/\s+/g, " ")
-          .trim()
+        if (!aiResponse) {
+          console.error("[v0] Empty response from Gemini")
+          analysisResult = {
+            verdict: "cautela",
+            reason: "Resposta vazia da IA. Tente novamente."
+          }
+        } else {
+          // Parse "[Classificação]: [Motivo]"
+          const [classification, ...reasonParts] = aiResponse.split(":")
+          const llmReasonRaw = reasonParts.join(":").trim()
 
-        let verdict: "seguro" | "cautela" | "golpe" = "cautela"
-        const cls = (classification || "").toLowerCase()
-        if (cls.includes("seguro")) verdict = "seguro"
-        else if (cls.includes("golpe")) verdict = "golpe"
-        else verdict = "cautela"
+          console.log("[v0] Parsed classification:", classification)
+          console.log("[v0] Parsed reason:", llmReasonRaw)
 
-        // Monta problemas por URL (linguagem popular)
-        const perUrlIssues: string[] = []
-        for (const t of analyzedWithAges) {
-          const issues = collectIssues(t.hints)
-          if (issues.length) perUrlIssues.push(`[${t.url}] ${issues.join("; ")}`)
+          // Normaliza motivo do LLM para linguagem popular (apenas o essencial)
+          const llmReason = llmReasonRaw
+            .replace(/dom[ií]nio recente/gi, "site muito novo")
+            .replace(/conte[úu]do adulto/gi, "conteúdo adulto")
+            .replace(/\s+/g, " ")
+            .trim()
+
+          let verdict: "seguro" | "cautela" | "golpe" = "cautela"
+          const cls = (classification || "").toLowerCase()
+          if (cls.includes("seguro")) verdict = "seguro"
+          else if (cls.includes("golpe")) verdict = "golpe"
+          else verdict = "cautela"
+
+          console.log("[v0] Final verdict:", verdict)
+
+          // Monta problemas por URL (linguagem popular)
+          const perUrlIssues: string[] = []
+          for (const t of analyzedWithAges) {
+            const issues = collectIssues(t.hints)
+            if (issues.length) perUrlIssues.push(`[${t.url}] ${issues.join("; ")}`)
+          }
+
+          const finalReason =
+            perUrlIssues.length
+              ? (llmReason ? `${llmReason} | ${perUrlIssues.join(" | ")}` : perUrlIssues.join(" | "))
+              : (llmReason || "Análise feita. Use com atenção.")
+
+          analysisResult = { verdict, reason: finalReason }
         }
-
-        const finalReason =
-          perUrlIssues.length
-            ? (llmReason ? `${llmReason} | ${perUrlIssues.join(" | ")}` : perUrlIssues.join(" | "))
-            : (llmReason || "Análise feita. Use com atenção.")
-
-        analysisResult = { verdict, reason: finalReason }
       }
     }
 
-    // Persistência INALTERADA
-    try {
-      const supabase = await createClient()
-      const { error: insertError } = await supabase.from("leads").insert({
-        email,
-        phone,
-        page_url: pageUrl,
-        message: sanitizedMessage,
-        analysis_result: analysisResult
-      })
-      if (insertError) {
-        console.error("[v0] Error saving to Supabase:", insertError)
-      } else {
-        console.log("[v0] Lead saved successfully to Supabase:", {
-          email, phone, pageUrl,
-          verdict: analysisResult.verdict,
-          timestamp: new Date().toISOString()
-        })
-      }
-    } catch (supabaseError) {
-      console.error("[v0] Supabase connection error:", supabaseError)
-    }
+    // Salva resultado final no Supabase
+    await saveToSupabase(analysisResult)
 
     return analysisResult
   } catch (error) {
     console.error("[v0] Error analyzing message:", error)
-    return getMockAnalysis(sanitizedMessage)
-  }
-}
-
-/* =========================
-   Mock (linguagem popular)
-   ========================= */
-
-function getMockAnalysis(message: string): AnalysisResult {
-  const lowerMessage = (message || "").toLowerCase()
-
-  const suspiciousKeywords = [
-    "urgente", "clique aqui", "ganhe dinheiro", "prêmio", "parabéns",
-    "conta bloqueada", "confirme seus dados", "pix", "transferência",
-    "código de segurança", "whatsapp", "link", "cadastre-se",
-  ]
-  const safeKeywords = ["obrigado", "agradecimento", "informação", "newsletter", "confirmação de pedido", "recibo"]
-
-  const suspiciousCount = suspiciousKeywords.filter((k) => lowerMessage.includes(k)).length
-  const safeCount = safeKeywords.filter((k) => lowerMessage.includes(k)).length
-
-  if (suspiciousCount >= 2) {
-    return { verdict: "golpe", reason: "Tem vários sinais de golpe na mensagem." }
-  } else if (suspiciousCount >= 1) {
-    return { verdict: "cautela", reason: "Tem alguns sinais estranhos. Melhor conferir antes de agir." }
-  } else if (safeCount > 0) {
-    return { verdict: "seguro", reason: "Parece mensagem normal, mas sempre confira a fonte." }
-  } else {
-    return { verdict: "cautela", reason: "Não deu pra ter certeza. Melhor conferir a origem." }
+    return {
+      verdict: "cautela",
+      reason: "Erro inesperado na análise. Tente novamente."
+    }
   }
 }

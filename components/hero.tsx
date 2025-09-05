@@ -26,12 +26,50 @@ export function Hero() {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState("")
   const [pageUrl, setPageUrl] = useState("")
+  const [cooldownTime, setCooldownTime] = useState(0)
+  const [lastSubmissionKey, setLastSubmissionKey] = useState("")
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setPageUrl(window.location.href)
     }
   }, [])
+
+  // Effect para controlar o cooldown
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined
+    
+    if (cooldownTime > 0) {
+      interval = setInterval(() => {
+        setCooldownTime((prev) => {
+          if (prev <= 1) {
+            setLastSubmissionKey("")
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [cooldownTime])
+
+  // Função para verificar se está no cooldown
+  const checkCooldown = (email: string, message: string) => {
+    const submissionKey = `${email.trim().toLowerCase()}|${message.trim()}`
+    return lastSubmissionKey === submissionKey && cooldownTime > 0
+  }
+
+  // Função para iniciar o cooldown
+  const startCooldown = (email: string, message: string) => {
+    const submissionKey = `${email.trim().toLowerCase()}|${message.trim()}`
+    setLastSubmissionKey(submissionKey)
+    setCooldownTime(40) // 40 segundos
+  }
 
   const formatPhone = (value: string) => {
     const numbers = value.replace(/\D/g, "")
@@ -52,7 +90,8 @@ export function Hero() {
       emailRegex.test(email) &&
       phone.replace(/\D/g, "").length === 11 &&
       message.length >= 10 &&
-      acceptedTerms
+      acceptedTerms &&
+      !checkCooldown(email, message) // Adiciona verificação de cooldown
     )
   }
 
@@ -60,9 +99,16 @@ export function Hero() {
     e.preventDefault()
 
     if (!isFormValid()) {
-      setError("Por favor, preencha todos os campos corretamente.")
+      if (checkCooldown(email, message)) {
+        setError(`Aguarde ${cooldownTime} segundos para analisar a mesma mensagem novamente.`)
+      } else {
+        setError("Por favor, preencha todos os campos corretamente.")
+      }
       return
     }
+
+    // Inicia o cooldown imediatamente
+    startCooldown(email, message)
 
     setIsLoading(true)
     setError("")
@@ -244,11 +290,23 @@ export function Hero() {
 
             <Button
               type="submit"
-              disabled={isLoading || !isFormValid()}
+              disabled={isLoading || !isFormValid() || checkCooldown(email, message)}
               className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg disabled:opacity-50"
             >
-              {isLoading ? "Analisando..." : "Escanear com IA agora"}
+              {isLoading ? (
+                "Analisando..."
+              ) : checkCooldown(email, message) ? (
+                `Aguarde ${cooldownTime}s para analisar novamente`
+              ) : (
+                "Escanear com IA agora"
+              )}
             </Button>
+
+            {checkCooldown(email, message) && !isLoading && (
+              <div className="bg-amber-500/10 border border-amber-500 text-amber-400 p-3 rounded-lg text-sm text-center">
+                ⏱️ Você já analisou esta mensagem recentemente. Aguarde <strong>{cooldownTime} segundos</strong> para analisar novamente.
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500 text-red-400 p-3 rounded-lg text-sm">{error}</div>
