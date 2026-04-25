@@ -4,34 +4,43 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* === OFFICIAL BLACKBIRD PALETTE === */
+  --bb-black: #121315;
+  --bb-gunmetal: #152132;
+  --bb-alice: #CBD8E4;
+  --bb-slate: #B9C7D6;
+  --bb-white: #ffffff;
+  --bb-black-cta: #121315;
+
+  /* === Shadcn-compatible mappings (palette-only) === */
   --background: #121315;
   --foreground: #ffffff;
   --card: #152132;
   --card-foreground: #ffffff;
   --popover: #152132;
   --popover-foreground: #ffffff;
-  --primary: #cbd8e4;
+  --primary: #ffffff;
   --primary-foreground: #121315;
-  --secondary: #1e2d42;
-  --secondary-foreground: #cbd8e4;
-  --muted: #1e2d42;
-  --muted-foreground: #7a8fa6;
-  --accent: #b9c7d6;
+  --secondary: #152132;
+  --secondary-foreground: #CBD8E4;
+  --muted: #152132;
+  --muted-foreground: #B9C7D6;
+  --accent: #CBD8E4;
   --accent-foreground: #121315;
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: #ffffff;
-  --border: #1e2d42;
-  --input: #152132;
-  --ring: #cbd8e4;
-  --radius: 0.5rem;
-  --sidebar: #0e1621;
+  --destructive: #CBD8E4;
+  --destructive-foreground: #121315;
+  --border: rgba(203, 216, 228, 0.1);
+  --input: rgba(203, 216, 228, 0.1);
+  --ring: rgba(203, 216, 228, 0.28);
+  --radius: 0.625rem;
+  --sidebar: #121315;
   --sidebar-foreground: #ffffff;
-  --sidebar-primary: #cbd8e4;
+  --sidebar-primary: #ffffff;
   --sidebar-primary-foreground: #121315;
   --sidebar-accent: #152132;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1e2d42;
-  --sidebar-ring: #cbd8e4;
+  --sidebar-accent-foreground: #CBD8E4;
+  --sidebar-border: rgba(203, 216, 228, 0.1);
+  --sidebar-ring: rgba(203, 216, 228, 0.28);
 }
 
 .dark {
@@ -41,27 +50,27 @@
   --card-foreground: #ffffff;
   --popover: #152132;
   --popover-foreground: #ffffff;
-  --primary: #cbd8e4;
+  --primary: #ffffff;
   --primary-foreground: #121315;
-  --secondary: #1e2d42;
-  --secondary-foreground: #cbd8e4;
-  --muted: #1e2d42;
-  --muted-foreground: #7a8fa6;
-  --accent: #b9c7d6;
+  --secondary: #152132;
+  --secondary-foreground: #CBD8E4;
+  --muted: #152132;
+  --muted-foreground: #B9C7D6;
+  --accent: #CBD8E4;
   --accent-foreground: #121315;
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: #ffffff;
-  --border: #1e2d42;
-  --input: #152132;
-  --ring: #cbd8e4;
-  --sidebar: #0e1621;
+  --destructive: #CBD8E4;
+  --destructive-foreground: #121315;
+  --border: rgba(203, 216, 228, 0.1);
+  --input: rgba(203, 216, 228, 0.1);
+  --ring: rgba(203, 216, 228, 0.28);
+  --sidebar: #121315;
   --sidebar-foreground: #ffffff;
-  --sidebar-primary: #cbd8e4;
+  --sidebar-primary: #ffffff;
   --sidebar-primary-foreground: #121315;
   --sidebar-accent: #152132;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1e2d42;
-  --sidebar-ring: #cbd8e4;
+  --sidebar-accent-foreground: #CBD8E4;
+  --sidebar-border: rgba(203, 216, 228, 0.1);
+  --sidebar-ring: rgba(203, 216, 228, 0.28);
 }
 
 @theme inline {
@@ -101,56 +110,44 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: var(--border);
   }
   body {
     background-color: #121315;
     color: #ffffff;
     font-family: var(--font-neue-haas), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-/* BlackBird dark navy gradient background with diagonal light sweep */
-.bb-bg {
-  background-color: #121315;
-  background-image:
-    radial-gradient(ellipse 80% 60% at 80% 20%, rgba(203, 216, 228, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 80% at 100% 50%, rgba(185, 199, 214, 0.04) 0%, transparent 70%),
-    linear-gradient(135deg, #0e1621 0%, #121315 40%, #0a0e14 100%);
+/* Field wrapper focus state (palette-only) */
+.bb-field {
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.bb-field:focus-within {
+  border-color: rgba(203, 216, 228, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(203, 216, 228, 0.05);
+}
+.bb-field:focus-within .bb-field-icon {
+  opacity: 0.55;
 }
 
-/* Light sweep shimmer for hero section */
-.bb-sweep {
-  position: relative;
-  overflow: hidden;
+/* Native input/textarea reset */
+.bb-input,
+.bb-textarea {
+  color: #ffffff;
 }
-.bb-sweep::before {
-  content: '';
-  position: absolute;
-  top: -40%;
-  right: -10%;
-  width: 55%;
-  height: 180%;
-  background: linear-gradient(
-    135deg,
-    transparent 0%,
-    rgba(203, 216, 228, 0.03) 30%,
-    rgba(203, 216, 228, 0.07) 50%,
-    rgba(185, 199, 214, 0.03) 70%,
-    transparent 100%
-  );
-  transform: skewX(-12deg);
-  pointer-events: none;
+.bb-input::placeholder {
+  color: rgba(185, 199, 214, 0.35);
+}
+.bb-textarea::placeholder {
+  color: rgba(185, 199, 214, 0.3);
 }
 
-/* Phone input */
-.phone-input {
-  background: #152132;
-  border: 1px solid #1e2d42;
-  color: white;
-}
-.phone-input:focus {
-  border-color: #cbd8e4;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(203, 216, 228, 0.15);
+/* Hide number input spinners, autofill overrides */
+.bb-input:-webkit-autofill,
+.bb-textarea:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff;
+  -webkit-box-shadow: 0 0 0 1000px rgba(18, 19, 21, 0.6) inset;
+  transition: background-color 5000s ease-in-out 0s;
 }
