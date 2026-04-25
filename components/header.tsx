@@ -41,17 +41,7 @@ function BlackBirdLogo({ className = "" }: { className?: string }) {
         fill="white"
         letterSpacing="-0.5"
       >
-        BlackBird
-      </text>
-      <text
-        x="236"
-        y="22"
-        fontFamily="var(--font-neue-haas), system-ui, sans-serif"
-        fontWeight="400"
-        fontSize="11"
-        fill="white"
-      >
-        ®
+        BlackBird<tspan fontSize="11" dy="-9" dx="2" fontWeight="400">®</tspan>
       </text>
     </svg>
   )

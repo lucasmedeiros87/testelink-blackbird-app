@@ -23,7 +23,7 @@ export function HowItWorks() {
   ]
 
   return (
-    <section className="px-6 py-20 md:px-10 md:py-28">
+    <section className="px-6 pt-10 pb-20 md:px-10 md:pt-14 md:pb-28">
       <div className="max-w-6xl mx-auto">
         <div className="mb-16">
           <p className="text-[#cbd8e4] text-xs uppercase tracking-widest font-medium mb-3">Metodologia</p>

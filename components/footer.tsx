@@ -8,7 +8,7 @@ export function Footer() {
           <div>
             <span className="text-white font-bold text-lg tracking-tight">BlackBird<sup className="text-xs font-normal ml-0.5">®</sup></span>
             <p className="mt-2 text-[#7a8fa6] text-sm max-w-xs leading-relaxed">
-              Intelligence, Counter-Intelligence &amp; Asset Recovery for High-Risk Environments.
+              Inteligência, Contrainteligência e Recuperação de Ativos para Ambientes de Alto Risco.
             </p>
           </div>
 

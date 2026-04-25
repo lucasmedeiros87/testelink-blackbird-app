@@ -184,6 +184,10 @@ export function Hero() {
         {/* Form Card */}
         <Card className="bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-5" action="/api/lead" method="POST">
+            <div className="text-sm text-[#4a5f75] bg-[#0e1621] border border-[#1e2d42] p-3.5 rounded-lg text-left leading-relaxed">
+              Você recebe <span className="text-[#cbd8e4] font-medium">R$ 50 em crédito</span> no lançamento do app BlackBird. O crédito é para uso dentro do app.
+            </div>
+
             <div className="space-y-3.5">
               <Input
                 type="email"
@@ -208,11 +212,11 @@ export function Hero() {
 
               <div className="relative">
                 <Textarea
-                  placeholder="Cole aqui a mensagem ou link suspeito..."
+                  placeholder="Cole aqui o link, mensagem de WhatsApp ou e-mail suspeito..."
                   name="message"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  className="bg-[#0e1621] border-[#1e2d42] text-white placeholder:text-[#4a5f75] focus-visible:ring-[#cbd8e4]/30 focus-visible:border-[#cbd8e4]/50 min-h-[120px] resize-none"
+                  className="bg-[#0e1621] border-[#1e2d42] text-white placeholder:text-[#4a5f75] focus-visible:ring-[#cbd8e4]/30 focus-visible:border-[#cbd8e4]/50 min-h-[120px] resize-none text-sm"
                   maxLength={1500}
                   required
                 />
@@ -227,22 +231,17 @@ export function Hero() {
                 id="terms"
                 checked={acceptedTerms}
                 onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
-                className="border-[#1e2d42] data-[state=checked]:bg-[#cbd8e4] data-[state=checked]:border-[#cbd8e4] mt-0.5"
+                className="border-white/50 data-[state=checked]:bg-[#cbd8e4] data-[state=checked]:border-[#cbd8e4] mt-0.5"
               />
-              <label htmlFor="terms" className="text-sm text-[#7a8fa6] leading-relaxed cursor-pointer">
+              <label htmlFor="terms" className="text-sm text-white/70 leading-relaxed cursor-pointer">
                 Li e aceito a Política de Privacidade e o Termo do Crédito de R$ 50
               </label>
-            </div>
-
-            <div className="text-xs text-[#4a5f75] bg-[#0e1621] border border-[#1e2d42] p-3.5 rounded-lg text-left leading-relaxed">
-              Você recebe <span className="text-[#cbd8e4] font-medium">R$ 50 em crédito</span> no lançamento do app BlackBird em 15/09.
-              O crédito é para uso dentro do app.
             </div>
 
             <Button
               type="submit"
               disabled={isLoading || !isFormValid()}
-              className="w-full bg-[#cbd8e4] hover:bg-[#b9c7d6] text-[#121315] font-semibold h-12 text-sm tracking-wide disabled:opacity-40 transition-colors"
+              className="w-full bg-white hover:bg-[#f0f0f0] text-[#121315] font-semibold h-12 text-sm tracking-wide disabled:opacity-40 transition-colors"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
