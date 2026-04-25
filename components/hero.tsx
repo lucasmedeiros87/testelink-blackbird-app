@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Shield, CheckCircle, AlertTriangle, XCircle, ScanSearch } from "lucide-react"
+import { ShieldCheck, Lock, Sparkles, CheckCircle, AlertTriangle, XCircle, ScanSearch } from "lucide-react"
 import { analyzeMessage } from "@/lib/actions"
 
 interface AnalysisResult {
@@ -167,9 +167,9 @@ export function Hero() {
         {/* Trust badges */}
         <div className="flex flex-wrap justify-center gap-3 mb-14">
           {[
-            { icon: <Shield className="w-3.5 h-3.5" />, label: "LGPD" },
-            { icon: <Shield className="w-3.5 h-3.5" />, label: "Anti-fraude" },
-            { icon: <Shield className="w-3.5 h-3.5" />, label: "Google GenAI" },
+            { icon: <ShieldCheck className="w-3.5 h-3.5" />, label: "LGPD" },
+            { icon: <Lock className="w-3.5 h-3.5" />, label: "Anti-fraude" },
+            { icon: <Sparkles className="w-3.5 h-3.5" />, label: "Google GenAI" },
           ].map(({ icon, label }) => (
             <div
               key={label}
@@ -182,12 +182,8 @@ export function Hero() {
         </div>
 
         {/* Form Card */}
-        <Card className="bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto shadow-2xl">
+        <Card className="relative z-10 bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-5" action="/api/lead" method="POST">
-            <div className="text-sm text-[#4a5f75] bg-[#0e1621] border border-[#1e2d42] p-3.5 rounded-lg text-left leading-relaxed">
-              Você recebe <span className="text-[#cbd8e4] font-medium">R$ 50 em crédito</span> no lançamento do app BlackBird. O crédito é para uso dentro do app.
-            </div>
-
             <div className="space-y-3.5">
               <Input
                 type="email"
@@ -234,14 +230,14 @@ export function Hero() {
                 className="border-white/50 data-[state=checked]:bg-[#cbd8e4] data-[state=checked]:border-[#cbd8e4] mt-0.5"
               />
               <label htmlFor="terms" className="text-sm text-white/70 leading-relaxed cursor-pointer">
-                Li e aceito a Política de Privacidade e o Termo do Crédito de R$ 50
+                Li e aceito a Política de Privacidade e os Termos de Uso
               </label>
             </div>
 
             <Button
               type="submit"
               disabled={isLoading || !isFormValid()}
-              className="w-full bg-white hover:bg-[#f0f0f0] text-[#121315] font-semibold h-12 text-sm tracking-wide disabled:opacity-40 transition-colors"
+              className="w-full bg-white hover:bg-[#f0f0f0] text-[#121315] font-semibold h-12 text-sm tracking-wide disabled:bg-[#1e2d42] disabled:text-[#5a7a94] disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -266,7 +262,7 @@ export function Hero() {
 
         {/* Result Card */}
         {result && (
-          <Card className="bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto mt-6 shadow-2xl text-left">
+          <Card className="relative z-10 bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto mt-6 shadow-2xl text-left">
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <Badge
@@ -309,7 +305,7 @@ export function Hero() {
         )}
 
         <p className="text-xs text-[#4a5f75] mt-8 max-w-2xl mx-auto leading-relaxed">
-          Seus dados são utilizados exclusivamente para entrega do resultado e liberação do crédito no app.
+          Seus dados são utilizados exclusivamente para entrega do resultado da análise.
           Proteção em conformidade com a LGPD.
         </p>
       </div>
