@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Shield, CheckCircle, AlertTriangle, XCircle } from "lucide-react"
+import { Shield, CheckCircle, AlertTriangle, XCircle, ScanSearch } from "lucide-react"
 import { analyzeMessage } from "@/lib/actions"
 
 interface AnalysisResult {
@@ -42,8 +41,7 @@ export function Hero() {
   }
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhone(e.target.value)
-    setPhone(formatted)
+    setPhone(formatPhone(e.target.value))
   }
 
   const isFormValid = () => {
@@ -68,7 +66,6 @@ export function Hero() {
     setError("")
     setResult(null)
 
-    // 1) Tenta a análise, mas NÃO bloqueia o envio/pixel se falhar
     try {
       const analysisFormData = new FormData()
       analysisFormData.append("email", email)
@@ -79,48 +76,30 @@ export function Hero() {
       const r = await analyzeMessage(analysisFormData)
       setResult(r)
     } catch (err) {
-      console.error("[v0] Error analyzing message:", err)
+      console.error("Error analyzing message:", err)
       setError("Erro ao analisar a mensagem. Tente novamente.")
-      // seguimos o fluxo mesmo assim
     }
 
-    // 2) Envia para /api/lead e dispara o evento no sucesso real (2xx/3xx/redirect)
     try {
       const phoneRaw = phone.replace(/\D/g, "")
-
-      const form = e.currentTarget as HTMLFormElement
-      const action = form ? form.getAttribute("action") || "/api/lead" : "/api/lead"
-      const method = form ? (form.getAttribute("method") || "POST").toUpperCase() : "POST"
-
       const formData = new FormData()
       formData.append("email", email)
       formData.append("phone", phoneRaw)
       formData.append("message", message)
 
-      const res = await fetch(action, { method, body: formData, redirect: "follow" })
+      const res = await fetch("/api/lead", { method: "POST", body: formData, redirect: "follow" })
       const ok = res.ok || (res.status >= 200 && res.status < 400) || res.redirected
 
       if (ok) {
-        const eventId = (window as any).uuidv4 ? (window as any).uuidv4() : String(Date.now())
-        const fbp = (window as any).getCookie ? (window as any).getCookie("_fbp") : ""
-        const fbc = (window as any).buildFBC ? (window as any).buildFBC() : ""
-
+        const eventId = String(Date.now())
         ;(window as any).dataLayer = (window as any).dataLayer || []
         ;(window as any).dataLayer.push({
           event: "lead_submit_success",
           event_id: eventId,
           user_email: email,
           user_phone: phoneRaw,
-          _fbp: fbp || "",
-          _fbc: fbc || "",
           event_source_url: window.location.href,
         })
-
-        try {
-          form.reset()
-        } catch {}
-      } else {
-        console.error("Falha no envio do formulário:", res.status, await res.text().catch(() => ""))
       }
     } catch (err) {
       console.error("Erro de rede no envio do formulário:", err)
@@ -134,69 +113,85 @@ export function Hero() {
       case "seguro":
         return {
           icon: <CheckCircle className="w-5 h-5" />,
-          badge: "✅ Seguro",
-          color: "bg-green-500 border-green-500 text-white",
+          badge: "Seguro",
+          color: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+          dot: "bg-emerald-400",
         }
       case "cautela":
         return {
           icon: <AlertTriangle className="w-5 h-5" />,
-          badge: "⚠️ Cautela",
-          color: "bg-amber-500 border-amber-500 text-white",
+          badge: "Atenção",
+          color: "bg-amber-500/10 border-amber-500/30 text-amber-400",
+          dot: "bg-amber-400",
         }
       case "golpe":
         return {
           icon: <XCircle className="w-5 h-5" />,
-          badge: "❌ Golpe detectado",
-          color: "bg-red-500 border-red-500 text-white",
+          badge: "Golpe detectado",
+          color: "bg-red-500/10 border-red-500/30 text-red-400",
+          dot: "bg-red-400",
         }
       default:
         return {
           icon: <AlertTriangle className="w-5 h-5" />,
-          badge: "⚠️ Cautela",
-          color: "bg-amber-500 border-amber-500 text-white",
+          badge: "Atenção",
+          color: "bg-amber-500/10 border-amber-500/30 text-amber-400",
+          dot: "bg-amber-400",
         }
     }
   }
 
   return (
-    <section className="px-4 py-12 md:px-6 md:py-20">
+    <section className="bb-sweep px-6 py-16 md:px-10 md:py-24">
       <div className="max-w-4xl mx-auto text-center">
+
+        {/* Eyebrow */}
+        <div className="inline-flex items-center gap-2 bg-[#152132] border border-[#1e2d42] px-4 py-1.5 rounded-full mb-8">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#cbd8e4]" />
+          <span className="text-[#cbd8e4] text-xs tracking-widest uppercase font-medium">
+            Inteligência Operacional
+          </span>
+        </div>
+
         {/* Hero Title */}
-        <h1 className="text-3xl md:text-5xl font-bold text-white mb-6 leading-tight">
-          Escaneie agora se você está sendo enganado com IA
+        <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 leading-[1.05] tracking-tight">
+          Detecte ameaças antes<br className="hidden md:block" />
+          <span className="text-[#cbd8e4]"> de sofrerem dano real.</span>
         </h1>
 
-        <p className="text-lg md:text-xl text-[#B3B3B3] mb-8 max-w-2xl mx-auto">
-          Cole a mensagem suspeita e nossa IA detecta fraude em segundos.
+        <p className="text-base md:text-lg text-[#7a8fa6] mb-12 max-w-xl mx-auto leading-relaxed">
+          Cole a mensagem suspeita. Nossa inteligência artificial analisa e entrega
+          um veredito em segundos.
         </p>
 
-        {/* Trust Indicators */}
-        <div className="flex flex-wrap justify-center gap-4 mb-12">
-          <div className="flex items-center gap-2 bg-[#1A1A1A] px-4 py-2 rounded-lg">
-            <Shield className="w-4 h-4 text-[#FFA500]" />
-            <span className="text-sm text-white">LGPD</span>
-          </div>
-          <div className="flex items-center gap-2 bg-[#1A1A1A] px-4 py-2 rounded-lg">
-            <Shield className="w-4 h-4 text-[#FFA500]" />
-            <span className="text-sm text-white">Anti-fraude</span>
-          </div>
-          <div className="flex items-center gap-2 bg-[#1A1A1A] px-4 py-2 rounded-lg">
-            <Shield className="w-4 h-4 text-[#FFA500]" />
-            <span className="text-sm text-white">Google GenAI</span>
-          </div>
+        {/* Trust badges */}
+        <div className="flex flex-wrap justify-center gap-3 mb-14">
+          {[
+            { icon: <Shield className="w-3.5 h-3.5" />, label: "LGPD" },
+            { icon: <Shield className="w-3.5 h-3.5" />, label: "Anti-fraude" },
+            { icon: <Shield className="w-3.5 h-3.5" />, label: "Google GenAI" },
+          ].map(({ icon, label }) => (
+            <div
+              key={label}
+              className="flex items-center gap-2 bg-[#152132] border border-[#1e2d42] px-4 py-2 rounded-full"
+            >
+              <span className="text-[#cbd8e4]">{icon}</span>
+              <span className="text-xs text-[#b9c7d6] font-medium tracking-wide">{label}</span>
+            </div>
+          ))}
         </div>
 
         {/* Form Card */}
-        <Card className="bg-[#1A1A1A] border-[#404040] p-6 md:p-8 max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit} className="space-y-6" action="/api/lead" method="POST">
-            <div className="space-y-4">
+        <Card className="bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto shadow-2xl">
+          <form onSubmit={handleSubmit} className="space-y-5" action="/api/lead" method="POST">
+            <div className="space-y-3.5">
               <Input
                 type="email"
                 placeholder="voce@exemplo.com"
                 name="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
+                className="bg-[#0e1621] border-[#1e2d42] text-white placeholder:text-[#4a5f75] focus-visible:ring-[#cbd8e4]/30 focus-visible:border-[#cbd8e4]/50 h-11"
                 required
               />
 
@@ -206,7 +201,7 @@ export function Hero() {
                 name="phone"
                 value={phone}
                 onChange={handlePhoneChange}
-                className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500]"
+                className="bg-[#0e1621] border-[#1e2d42] text-white placeholder:text-[#4a5f75] focus-visible:ring-[#cbd8e4]/30 focus-visible:border-[#cbd8e4]/50 h-11"
                 maxLength={15}
                 required
               />
@@ -217,89 +212,107 @@ export function Hero() {
                   name="message"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  className="bg-[#1A1A1A] border-[#404040] text-white placeholder:text-[#666] focus:border-[#FFA500] min-h-[120px] resize-none"
+                  className="bg-[#0e1621] border-[#1e2d42] text-white placeholder:text-[#4a5f75] focus-visible:ring-[#cbd8e4]/30 focus-visible:border-[#cbd8e4]/50 min-h-[120px] resize-none"
                   maxLength={1500}
                   required
                 />
-                <div className="absolute bottom-2 right-2 text-xs text-[#666]">{message.length}/1500</div>
+                <div className="absolute bottom-2.5 right-3 text-xs text-[#4a5f75]">
+                  {message.length}/1500
+                </div>
               </div>
             </div>
 
-            <div className="flex items-start space-x-2">
+            <div className="flex items-start space-x-3">
               <Checkbox
                 id="terms"
                 checked={acceptedTerms}
                 onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
-                className="border-[#404040] data-[state=checked]:bg-[#FFA500] data-[state=checked]:border-[#FFA500]"
+                className="border-[#1e2d42] data-[state=checked]:bg-[#cbd8e4] data-[state=checked]:border-[#cbd8e4] mt-0.5"
               />
-              <label htmlFor="terms" className="text-sm text-white leading-relaxed">
+              <label htmlFor="terms" className="text-sm text-[#7a8fa6] leading-relaxed cursor-pointer">
                 Li e aceito a Política de Privacidade e o Termo do Crédito de R$ 50
               </label>
             </div>
 
-            <div className="text-xs text-white bg-[#0D0D0D] p-3 rounded-lg">
-              🎁 Você recebe R$ 50 em CRÉDITO no lançamento do app Escudo Pro em 15/09. O crédito é para uso dentro do
-              app (não é transferência em dinheiro).
+            <div className="text-xs text-[#4a5f75] bg-[#0e1621] border border-[#1e2d42] p-3.5 rounded-lg text-left leading-relaxed">
+              Você recebe <span className="text-[#cbd8e4] font-medium">R$ 50 em crédito</span> no lançamento do app BlackBird em 15/09.
+              O crédito é para uso dentro do app.
             </div>
 
             <Button
               type="submit"
               disabled={isLoading || !isFormValid()}
-              className="w-full bg-[#FFA500] hover:bg-[#CC7A00] text-white font-semibold py-3 text-lg disabled:opacity-50"
+              className="w-full bg-[#cbd8e4] hover:bg-[#b9c7d6] text-[#121315] font-semibold h-12 text-sm tracking-wide disabled:opacity-40 transition-colors"
             >
-              {isLoading ? "Analisando..." : "Escanear com IA agora"}
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-[#121315]/30 border-t-[#121315] rounded-full animate-spin" />
+                  Analisando...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <ScanSearch className="w-4 h-4" />
+                  Escanear com IA
+                </span>
+              )}
             </Button>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500 text-red-400 p-3 rounded-lg text-sm">{error}</div>
+              <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3.5 rounded-lg text-sm text-left">
+                {error}
+              </div>
             )}
           </form>
         </Card>
 
-        {/* Resultados */}
+        {/* Result Card */}
         {result && (
-          <Card className="bg-[#1A1A1A] border-[#404040] p-6 md:p-8 max-w-2xl mx-auto mt-8">
+          <Card className="bg-[#152132] border-[#1e2d42] p-7 md:p-10 max-w-2xl mx-auto mt-6 shadow-2xl text-left">
             <div className="space-y-6">
-              <div className="flex items-center justify-center gap-3">
-                <Badge className={`${getResultConfig(result.verdict).color} px-4 py-2 text-base font-semibold`}>
+              <div className="flex items-center gap-3">
+                <Badge
+                  className={`${getResultConfig(result.verdict).color} border px-4 py-1.5 text-sm font-medium flex items-center gap-2`}
+                >
+                  {getResultConfig(result.verdict).icon}
                   {getResultConfig(result.verdict).badge}
                 </Badge>
               </div>
 
-              <p className="text-white text-center leading-relaxed">{result.reason}</p>
+              <p className="text-[#b9c7d6] leading-relaxed text-sm">{result.reason}</p>
 
-              <div className="bg-[#0D0D0D] p-4 rounded-lg">
-                <h3 className="text-[#FFA500] font-semibold mb-3">Como se proteger agora:</h3>
-                <ul className="space-y-2 text-sm text-[#B3B3B3]">
-                  <li className="flex items-start gap-2">
-                    <span className="text-[#FFA500] mt-1">•</span>
-                    Nunca clique em links encurtados ou de remetentes desconhecidos.
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-[#FFA500] mt-1">•</span>
-                    Confirme no canal oficial da empresa antes de responder.
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-[#FFA500] mt-1">•</span>
-                    Desconfie de urgência, prêmios e pedidos de códigos.
-                  </li>
+              <div className="bg-[#0e1621] border border-[#1e2d42] p-5 rounded-lg">
+                <h3 className="text-[#cbd8e4] text-xs font-medium uppercase tracking-widest mb-4">
+                  Como se proteger agora
+                </h3>
+                <ul className="space-y-2.5">
+                  {[
+                    "Nunca clique em links encurtados ou de remetentes desconhecidos.",
+                    "Confirme no canal oficial da empresa antes de responder.",
+                    "Desconfie de urgência, prêmios e pedidos de códigos.",
+                  ].map((tip) => (
+                    <li key={tip} className="flex items-start gap-3 text-sm text-[#7a8fa6]">
+                      <span className="w-1 h-1 rounded-full bg-[#cbd8e4] mt-2 shrink-0" />
+                      {tip}
+                    </li>
+                  ))}
                 </ul>
               </div>
 
               <Button
                 variant="outline"
-                className="w-full border-[#FFA500] text-[#FFA500] hover:bg-[#FFA500] hover:text-white bg-transparent"
-                onClick={() => console.log("[v0] click_beta")}
+                className="w-full border-[#1e2d42] text-[#cbd8e4] hover:bg-[#1e2d42] hover:text-white bg-transparent h-11 text-sm tracking-wide"
+                onClick={() => {}}
               >
-                Quero participar do beta do Alby Protect
+                Quero participar do beta do BlackBird
               </Button>
             </div>
           </Card>
         )}
 
-        <div className="text-xs text-[#B3B3B3] mt-6 max-w-2xl mx-auto">
-          Seus dados são usados somente para enviar o resultado e liberar o seu crédito no app. Proteção conforme LGPD.
-        </div>
+        <p className="text-xs text-[#4a5f75] mt-8 max-w-2xl mx-auto leading-relaxed">
+          Seus dados são utilizados exclusivamente para entrega do resultado e liberação do crédito no app.
+          Proteção em conformidade com a LGPD.
+        </p>
       </div>
     </section>
   )

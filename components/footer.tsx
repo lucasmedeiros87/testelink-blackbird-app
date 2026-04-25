@@ -2,35 +2,37 @@ import Link from "next/link"
 
 export function Footer() {
   return (
-    <footer id="privacy-policy" className="px-4 py-12 md:px-6 md:py-16 border-t border-[#404040]">
+    <footer id="privacy-policy" className="px-6 py-12 md:px-10 md:py-16 border-t border-[#1e2d42]">
       <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-[#FFA500] rounded-lg flex items-center justify-center">
-              <span className="text-black font-bold">A</span>
-            </div>
-            <span className="text-lg font-bold text-white">Escudo Pro</span>
+        <div className="flex flex-col md:flex-row items-start justify-between gap-10">
+          <div>
+            <span className="text-white font-bold text-lg tracking-tight">BlackBird<sup className="text-xs font-normal ml-0.5">®</sup></span>
+            <p className="mt-2 text-[#7a8fa6] text-sm max-w-xs leading-relaxed">
+              Intelligence, Counter-Intelligence &amp; Asset Recovery for High-Risk Environments.
+            </p>
           </div>
 
-          <div className="text-center">
-            <p className="text-[#CC7A00] font-semibold text-lg">Lançamento oficial em 15 de setembro de 2025</p>
+          <div className="text-sm text-[#7a8fa6]">
+            <p className="font-medium text-[#cbd8e4] mb-3 uppercase tracking-widest text-xs">Legal</p>
+            <div className="flex flex-col gap-2">
+              <Link href="#privacy-policy" className="hover:text-[#cbd8e4] transition-colors">
+                Política de Privacidade
+              </Link>
+              <Link href="#terms" className="hover:text-[#cbd8e4] transition-colors">
+                Termos de Uso
+              </Link>
+              <Link href="#contact" className="hover:text-[#cbd8e4] transition-colors">
+                Contato
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="mt-8 pt-8 border-t border-[#404040] flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex flex-wrap justify-center gap-6 text-sm text-[#B3B3B3]">
-            <Link href="#privacy-policy" className="hover:text-[#FFA500] transition-colors">
-              Política de Privacidade
-            </Link>
-            <Link href="#terms" className="hover:text-[#FFA500] transition-colors">
-              Termos
-            </Link>
-            <Link href="#contact" className="hover:text-[#FFA500] transition-colors">
-              Contato
-            </Link>
-          </div>
-
-          <p className="text-sm text-[#666]">Escudo Pro</p>
+        <div className="mt-10 pt-8 border-t border-[#1e2d42] flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-xs text-[#4a5f75]">
+            © {new Date().getFullYear()} Blackbird Inc. Todos os direitos reservados.
+          </p>
+          <p className="text-xs text-[#4a5f75]">blackbird.com.br</p>
         </div>
       </div>
     </footer>

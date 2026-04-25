@@ -1,19 +1,54 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Montserrat } from "next/font/google"
+import localFont from "next/font/local"
 import "./globals.css"
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
+const neueHaas = localFont({
+  src: [
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-55Rg.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-56It.woff2",
+      weight: "400",
+      style: "italic",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-65Md.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-66MdIt.woff2",
+      weight: "500",
+      style: "italic",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-75Bd.woff2",
+      weight: "700",
+      style: "normal",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-76BdIt.woff2",
+      weight: "700",
+      style: "italic",
+    },
+    {
+      path: "../public/static/fonts/Neue-Haas-Grotesk/NHaasGroteskDSPro-95Blk.woff2",
+      weight: "900",
+      style: "normal",
+    },
+  ],
+  variable: "--font-neue-haas",
   display: "swap",
-  variable: "--font-montserrat",
 })
 
 export const metadata: Metadata = {
-  title: "Alby Protect - Escaneie Fraudes com IA",
+  title: "BlackBird® — Proteção de Inteligência",
   description:
-    "Detecte fraudes e golpes em mensagens suspeitas usando inteligência artificial. Proteção instantânea contra phishing e scams.",
-  generator: "v0.app",
+    "Detecte fraudes e golpes em mensagens suspeitas com inteligência artificial. Proteção instantânea contra phishing e scams.",
 }
 
 export default function RootLayout({
@@ -22,21 +57,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang="pt-BR" className={`dark ${neueHaas.variable}`}>
       <head>
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-WTHNR22M');`,
           }}
         />
-        <style>{`
-html {
-  font-family: ${montserrat.style.fontFamily};
-  --font-sans: ${montserrat.variable};
-}
-        `}</style>
       </head>
-      <body className="bg-black text-white font-sans antialiased">
+      <body className="antialiased">
         <noscript>
           <iframe
             src="https://www.googletagmanager.com/ns.html?id=GTM-WTHNR22M"
